@@ -1,13 +1,13 @@
-	.bash_history
-	.bash_logout
-	.bash_profile
-	.bashrc
-	.cache/
-	.govmomi/
-	.k5login
-	.local/
-	.ssh/
-	.viminfo
-	.zprofile
-	.zshrc
-	cmdb_sync_fast.py
+.bash_history
+.bash_logout
+.bash_profile
+.bashrc
+.cache/
+.govmomi/
+.k5login
+.local/
+.ssh/
+.viminfo
+.zprofile
+.zshrc
+cmdb_sync_fast.py
