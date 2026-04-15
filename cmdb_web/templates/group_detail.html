@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+{% block title %}{{ group.name }} — Groups — CMDB{% endblock %}
+{% block page_title %}
+  <a href="{{ url_for('web.groups') }}" class="text-muted text-decoration-none small">Groups</a>
+  <span class="text-muted mx-1">/</span>
+  {{ group.name }}
+  {% if group.is_ansible %}<span class="badge bg-primary ms-1 fw-normal" style="font-size:.7rem;">Ansible</span>{% endif %}
+  {% if group.is_nagios  %}<span class="badge bg-warning text-dark ms-1 fw-normal" style="font-size:.7rem;">Nagios</span>{% endif %}
+  {% if not group.is_ansible and not group.is_nagios %}
+    <span class="badge bg-secondary ms-1 fw-normal" style="font-size:.7rem;">Custom</span>
+  {% endif %}
+{% endblock %}
+
+{% block topbar_actions %}
+{% if current_user.is_admin %}
+<button class="btn btn-sm btn-outline-primary" id="btn-edit-group">
+  <i class="bi bi-pencil"></i> Edit
+</button>
+<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addNodesModal">
+  <i class="bi bi-plus-lg"></i> Add Nodes
+</button>
+{% endif %}
+<a href="{{ url_for('web.groups') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left"></i> Back
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+
+        <!-- View mode -->
+        <div id="view-group">
+          <div class="row g-3 align-items-center">
+            <div class="col-md-3">
+              <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Name</div>
+              <div class="fw-semibold">{{ group.name }}</div>
+            </div>
+            <div class="col-md-4">
+              <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Used As</div>
+              <div class="d-flex gap-1 flex-wrap mt-1">
+                {% if group.is_ansible %}<span class="badge bg-primary">Ansible inventory group</span>{% endif %}
+                {% if group.is_nagios  %}<span class="badge bg-warning text-dark">Nagios hostgroup</span>{% endif %}
+                {% if not group.is_ansible and not group.is_nagios %}
+                  <span class="text-muted small">Custom (not used by automation)</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Description</div>
+              <div>{{ group.description or '—' }}</div>
+            </div>
+            <div class="col-md-1">
+              <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Members</div>
+              <div class="fw-semibold">{{ member_count }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit mode -->
+        {% if current_user.is_admin %}
+        <div id="edit-group-form" style="display:none;">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Name</label>
+              <input type="text" id="eg-name" class="form-control form-control-sm" value="{{ group.name }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold d-block mb-2">Used As</label>
+              <div class="d-flex gap-3">
+                <div class="form-check mb-0">
+                  <input class="form-check-input" type="checkbox" id="eg-ansible"
+                         {% if group.is_ansible %}checked{% endif %}>
+                  <label class="form-check-label small" for="eg-ansible">
+                    <span class="badge bg-primary">Ansible</span>
+                  </label>
+                </div>
+                <div class="form-check mb-0">
+                  <input class="form-check-input" type="checkbox" id="eg-nagios"
+                         {% if group.is_nagios %}checked{% endif %}>
+                  <label class="form-check-label small" for="eg-nagios">
+                    <span class="badge bg-warning text-dark">Nagios</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Description</label>
+              <input type="text" id="eg-desc" class="form-control form-control-sm"
+                     value="{{ group.description or '' }}">
+            </div>
+            <div class="col-md-2 d-flex gap-2 align-items-end">
+              <button class="btn btn-primary btn-sm" id="btn-save-group">Save</button>
+              <button class="btn btn-outline-secondary btn-sm" id="btn-cancel-edit">Cancel</button>
+              <button class="btn btn-outline-danger btn-sm ms-auto" id="btn-delete-group"
+                      title="Delete group">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Member nodes table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-bottom d-flex align-items-center">
+    <span class="fw-semibold"><i class="bi bi-server me-2 text-primary"></i>Member Nodes</span>
+    <span class="badge bg-light text-dark border ms-2" id="member-count-badge">{{ member_count }}</span>
+  </div>
+  <div class="card-body p-0">
+    <table id="membersTable" class="table table-hover table-sm mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th><th>Hostname</th><th>Power</th><th>OS</th>
+          <th>Environment</th><th>Owner</th><th>Primary IP</th>
+          {% if current_user.is_admin %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+{% if current_user.is_admin %}
+<!-- Add Nodes Modal -->
+<div class="modal fade" id="addNodesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-semibold"><i class="bi bi-plus-lg me-2"></i>Add Nodes to {{ group.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Enter node names — one per line or comma-separated.
+          Use <code>*</code> as a wildcard (e.g. <code>hadoop*</code>).
+        </p>
+        <textarea id="add-names-input" class="form-control font-monospace" rows="8"
+                  placeholder="web01&#10;db*&#10;app01,app02"></textarea>
+        <div id="add-result" class="mt-3" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-primary" id="btn-confirm-add">
+          <i class="bi bi-plus-lg"></i> Add Nodes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const groupId = {{ group.id }};
+const isAdmin = {{ 'true' if current_user.is_admin else 'false' }};
+const PWR = {
+  poweredOn:  '<span class="pwr pwr-on">On</span>',
+  poweredOff: '<span class="pwr pwr-off">Off</span>',
+  suspended:  '<span class="pwr pwr-sus">Sus</span>',
+  unknown:    '<span class="pwr pwr-unk">?</span>',
+};
+const OS_B = {
+  linux:   '<span class="os-badge os-linux">Linux</span>',
+  windows: '<span class="os-badge os-windows">Windows</span>',
+  other:   '<span class="os-badge os-other">Other</span>',
+};
+
+function loadMembers() {
+  $.getJSON(`/api/v1/groups/${groupId}/nodes`, function(resp) {
+    const data = resp.data || [];
+    $('#member-count-badge').text(data.length);
+    const cols = [
+      { data: 'name',        render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>` },
+      { data: 'hostname',    defaultContent: '' },
+      { data: 'power_state', render: v => PWR[v] || v },
+      { data: 'guest_os',    render: (v,_,r) => (OS_B[r.os_category]||'') + ' <span class="small text-muted">' + (v||'') + '</span>' },
+      { data: 'environment', defaultContent: '' },
+      { data: 'owner',       defaultContent: '' },
+      { data: 'primary_ip',  defaultContent: '' },
+    ];
+    if (isAdmin) cols.push({
+      data: null, orderable: false,
+      render: (_,__,r) =>
+        `<button class="btn btn-sm btn-outline-danger btn-remove" data-id="${r.id}" data-name="${r.name}">
+           <i class="bi bi-x-lg"></i>
+         </button>`,
+    });
+
+    if ($.fn.DataTable.isDataTable('#membersTable')) $('#membersTable').DataTable().destroy();
+    $('#membersTable').DataTable({ data, columns: cols, pageLength: 50, order: [[0,'asc']] });
+  });
+}
+loadMembers();
+
+$('#membersTable tbody').on('click', '.btn-remove', function(e) {
+  e.stopPropagation();
+  const nid = $(this).data('id'), name = $(this).data('name');
+  if (!confirm(`Remove "${name}" from this group?`)) return;
+  $.ajax({
+    url: `/api/v1/groups/${groupId}/nodes/${nid}`, type: 'DELETE',
+    success: loadMembers,
+    error: (xhr) => alert('Error: ' + xhr.responseText),
+  });
+});
+
+$('#membersTable tbody').on('click', 'tr', function(e) {
+  if ($(e.target).closest('button').length) return;
+  const d = $('#membersTable').DataTable().row(this).data();
+  if (d?.id) window.location = '/nodes/' + d.id;
+});
+
+{% if current_user.is_admin %}
+// Edit group
+$('#btn-edit-group').on('click', function() {
+  $('#view-group').hide(); $('#edit-group-form').show(); $(this).hide();
+});
+$('#btn-cancel-edit').on('click', function() {
+  $('#edit-group-form').hide(); $('#view-group').show(); $('#btn-edit-group').show();
+});
+$('#btn-save-group').on('click', function() {
+  $(this).prop('disabled', true);
+  $.ajax({
+    url: `/api/v1/groups/${groupId}`, type: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      name:        $('#eg-name').val(),
+      description: $('#eg-desc').val(),
+      is_ansible:  $('#eg-ansible').is(':checked') ? 1 : 0,
+      is_nagios:   $('#eg-nagios').is(':checked')  ? 1 : 0,
+    }),
+    success: () => location.reload(),
+    error: (xhr) => { alert('Error: ' + xhr.responseText); $(this).prop('disabled', false); },
+  });
+});
+$('#btn-delete-group').on('click', function() {
+  if (!confirm('Delete this group? Nodes will NOT be deleted.')) return;
+  $.ajax({
+    url: `/api/v1/groups/${groupId}`, type: 'DELETE',
+    success: () => window.location = '/groups',
+    error: (xhr) => alert('Error: ' + xhr.responseText),
+  });
+});
+
+// Add nodes
+$('#btn-confirm-add').on('click', function() {
+  const raw   = $('#add-names-input').val().trim();
+  if (!raw) return;
+  const names = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  $(this).prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Adding…');
+  $.ajax({
+    url: `/api/v1/groups/${groupId}/nodes`, type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ names }),
+    success: (r) => {
+      let msg = `<div class="alert alert-success py-2 small mb-0">
+        Added <strong>${r.added}</strong> node(s).`;
+      if (r.not_found?.length)
+        msg += `<br><span class="text-warning fw-semibold">Not found:</span> ${r.not_found.join(', ')}`;
+      msg += '</div>';
+      $('#add-result').html(msg).show();
+      $('#add-names-input').val('');
+      loadMembers();
+      $(this).prop('disabled', false).html('<i class="bi bi-plus-lg"></i> Add Nodes');
+    },
+    error: (xhr) => {
+      alert('Error: ' + xhr.responseText);
+      $(this).prop('disabled', false).html('<i class="bi bi-plus-lg"></i> Add Nodes');
+    },
+  });
+});
+
+document.getElementById('addNodesModal').addEventListener('hidden.bs.modal', function() {
+  $('#add-names-input').val(''); $('#add-result').hide();
+});
+{% endif %}
+</script>
+{% endblock %}

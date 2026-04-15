@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} — CMDB{% endblock %}
+{% block page_title %}<i class="bi bi-table me-2 text-primary"></i>{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="mainTable" class="table table-hover mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          {% for col in columns %}<th>{{ col.title }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const apiUrl       = {{ api_url | tojson }};
+const rawCols      = {{ columns | tojson }};
+const rowClick     = {{ (row_click or '') | tojson }};
+const detailPrefix = {{ (detail_prefix or '') | tojson }};
+
+const colDefs = rawCols.map(c => {
+  if (c.data === 'node_name')
+    return { data: c.data, defaultContent: '',
+             render: (v, _, r) => r.node_id ? `<a href="/nodes/${r.node_id}">${v||''}</a>` : (v||'') };
+  if (c.data === 'is_primary')
+    return { data: c.data, defaultContent: '',
+             render: v => v ? '<i class="bi bi-check-circle-fill text-success"></i>' : '' };
+  // Make name column a link if we have a detail prefix
+  if (c.data === 'name' && detailPrefix)
+    return { data: c.data, defaultContent: '',
+             render: (v, _, r) => `<a href="${detailPrefix}/${r.id}" class="fw-semibold text-decoration-none">${v||''}</a>` };
+  if (c.data === 'full_name' && detailPrefix)
+    return { data: c.data, defaultContent: '',
+             render: (v, _, r) => `<a href="${detailPrefix}/${r.id}" class="text-decoration-none">${v||''}</a>` };
+  return { data: c.data, defaultContent: '' };
+});
+
+$.getJSON(apiUrl, function(resp) {
+  const data = resp.data || resp;
+  const dt = $('#mainTable').DataTable({
+    data: data,
+    columns: colDefs,
+    pageLength: 25,
+    order: [[0, 'asc']],
+    language: { emptyTable: 'No records found.' },
+  });
+
+  // Row click handling
+  if (rowClick === 'object' && detailPrefix) {
+    $('#mainTable tbody').on('click', 'tr', function(e) {
+      if ($(e.target).is('a')) return;
+      const d = dt.row(this).data();
+      if (d?.id) window.location = detailPrefix + '/' + d.id;
+    });
+    // Add pointer cursor
+    $('#mainTable').addClass('cursor-pointer');
+  } else if (rowClick === 'node') {
+    $('#mainTable tbody').on('click', 'tr', function(e) {
+      if ($(e.target).is('a')) return;
+      const d = dt.row(this).data();
+      if (d?.node_id) window.location = '/nodes/' + d.node_id;
+    });
+  }
+}).fail(function() {
+  $('#mainTable').after('<p class="text-danger p-3">Failed to load data.</p>');
+});
+</script>
+<style>
+  .cursor-pointer tbody tr { cursor: pointer; }
+</style>
+{% endblock %}

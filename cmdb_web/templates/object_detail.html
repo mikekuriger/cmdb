@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% block title %}{{ page_title }} — CMDB{% endblock %}
+{% block page_title %}
+  <a href="{{ back_url }}" class="text-muted text-decoration-none small">{{ back_label }}</a>
+  <span class="text-muted mx-1">/</span>
+  {{ page_title }}
+{% endblock %}
+
+{% block topbar_actions %}
+{% if current_user.is_admin %}
+<button class="btn btn-sm btn-outline-primary" id="btn-edit-toggle">
+  <i class="bi bi-pencil"></i> Edit
+</button>
+{% endif %}
+<a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left"></i> Back
+</a>
+{% endblock %}
+
+{% block head %}
+<style>
+  .detail-label { font-size:.72rem; font-weight:600; text-transform:uppercase;
+                  letter-spacing:.6px; color:#6c757d; margin-bottom:.2rem; }
+  .detail-value { font-size:.9rem; color:#1a202c; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Object metadata card -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div id="view-mode">
+      <div class="row g-3">
+        {% for f in edit_fields %}
+        <div class="col-md-3">
+          <div class="detail-label">{{ f.label }}</div>
+          <div class="detail-value" id="view-{{ f.field }}">{{ obj.get(f.field) or '—' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if current_user.is_admin %}
+    <div id="edit-mode" style="display:none;">
+      <div class="row g-3 align-items-end">
+        {% for f in edit_fields %}
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">{{ f.label }}</label>
+          {% if f.type == 'select' %}
+          <select id="ef-{{ f.field }}" class="form-select form-select-sm" data-field="{{ f.field }}">
+            {% for opt in f.options %}
+            <option value="{{ opt }}" {% if obj.get(f.field) == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+          {% elif f.type == 'email' %}
+          <input type="email" id="ef-{{ f.field }}" class="form-control form-control-sm"
+                 data-field="{{ f.field }}" value="{{ obj.get(f.field) or '' }}">
+          {% else %}
+          <input type="text" id="ef-{{ f.field }}" class="form-control form-control-sm"
+                 data-field="{{ f.field }}" value="{{ obj.get(f.field) or '' }}">
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div class="col-md-3 d-flex gap-2">
+          <button class="btn btn-primary btn-sm" id="btn-save">Save</button>
+          <button class="btn btn-outline-secondary btn-sm" id="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Associated nodes table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+    <i class="bi bi-server text-primary"></i>
+    <span class="fw-semibold">Associated Nodes</span>
+    <span class="badge bg-light text-dark border ms-1" id="node-count-badge">…</span>
+  </div>
+  <div class="card-body p-0">
+    <table id="nodesTable" class="table table-hover table-sm mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th><th>Hostname</th><th>Power</th><th>OS</th>
+          <th>Environment</th><th>Tier</th><th>Owner</th><th>Primary IP</th><th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const objType    = {{ obj_type | tojson }};
+const objId      = {{ obj.id }};
+const nodeFilter = {{ node_filter | tojson }};
+const filterVal  = {{ node_filter_val | tojson }};
+
+const PWR = {
+  poweredOn:  '<span class="pwr pwr-on">On</span>',
+  poweredOff: '<span class="pwr pwr-off">Off</span>',
+  suspended:  '<span class="pwr pwr-sus">Suspended</span>',
+  unknown:    '<span class="pwr pwr-unk">Unknown</span>',
+};
+const OS_B = {
+  linux:   '<span class="os-badge os-linux">Linux</span>',
+  windows: '<span class="os-badge os-windows">Windows</span>',
+  other:   '<span class="os-badge os-other">Other</span>',
+};
+
+// Server-side nodes table filtered to this object
+const table = $('#nodesTable').DataTable({
+  processing: true,
+  serverSide: true,
+  ajax: {
+    url: '/api/v1/nodes',
+    data: d => { d[nodeFilter] = filterVal; d.active = 'all'; return d; },
+  },
+  columns: [
+    { data: 'name',        render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>` },
+    { data: 'hostname',    defaultContent: '' },
+    { data: 'power_state', render: v => PWR[v] || v },
+    { data: 'guest_os',    render: (v,_,r) => (OS_B[r.os_category]||'') + ' <span class="text-muted small">' + (v||'') + '</span>' },
+    { data: 'environment', defaultContent: '' },
+    { data: 'tier',        defaultContent: '' },
+    { data: 'owner',       defaultContent: '' },
+    { data: 'primary_ip',  defaultContent: '' },
+    { data: 'last_seen',   defaultContent: '' },
+  ],
+  pageLength: 25,
+  order: [[0, 'asc']],
+  language: {
+    processing: '<div class="d-flex align-items-center gap-2 text-muted small p-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading…</div>',
+    emptyTable: 'No nodes associated with this object.',
+  },
+  layout: {
+    topStart: { pageLength: {} }, topEnd: null,
+    bottomStart: { info: {} }, bottomEnd: { paging: {} },
+  },
+  drawCallback: function() {
+    const info = this.api().page.info();
+    $('#node-count-badge').text(info.recordsDisplay.toLocaleString());
+  },
+});
+
+// Row click → node detail
+$('#nodesTable tbody').on('click', 'tr', function(e) {
+  if ($(e.target).is('a')) return;
+  const d = table.row(this).data();
+  if (d?.id) window.location = '/nodes/' + d.id;
+});
+
+{% if current_user.is_admin %}
+// Edit toggle
+$('#btn-edit-toggle').on('click', function() {
+  const editing = $('#edit-mode').is(':visible');
+  if (editing) {
+    $('#edit-mode').hide(); $('#view-mode').show();
+    $(this).html('<i class="bi bi-pencil"></i> Edit').removeClass('btn-outline-danger').addClass('btn-outline-primary');
+  } else {
+    $('#view-mode').hide(); $('#edit-mode').show();
+    $(this).html('<i class="bi bi-x-lg"></i> Cancel').removeClass('btn-outline-primary').addClass('btn-outline-danger');
+  }
+});
+$('#btn-cancel').on('click', () => $('#btn-edit-toggle').click());
+
+$('#btn-save').on('click', function() {
+  const payload = {};
+  $('[data-field]').each(function() { payload[$(this).data('field')] = $(this).val(); });
+  $(this).prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+  $.ajax({
+    url: `/api/v1/${objType}/${objId}`, type: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify(payload),
+    success: () => location.reload(),
+    error: (xhr) => {
+      alert('Save failed: ' + xhr.responseText);
+      $('#btn-save').prop('disabled', false).html('Save');
+    },
+  });
+});
+{% endif %}
+</script>
+{% endblock %}

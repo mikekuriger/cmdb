@@ -1,0 +1,276 @@
+{% extends 'base.html' %}
+{% block title %}Nodes — CMDB{% endblock %}
+{% block page_title %}<i class="bi bi-server me-2 text-primary"></i>Nodes{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-sm btn-outline-secondary" id="btn-export">
+  <i class="bi bi-download"></i> Export CSV
+</button>
+{% endblock %}
+
+{% block head %}
+<style>
+  #search-bar { position:relative; }
+  #search-bar i { position:absolute; left:.75rem; top:.62rem; color:#adb5bd; pointer-events:none; }
+  #globalSearch { padding-left:2.2rem; }
+  #adv-panel { display:none; border-top:1px solid #f0f2f5; padding-top:.75rem; margin-top:.75rem; }
+  #adv-panel.show { display:block; }
+  .filter-active { border-color:#0d6efd !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Search + filter card -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-3 px-3">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <div id="search-bar" class="flex-grow-1">
+        <i class="bi bi-search"></i>
+        <input id="globalSearch" type="text" class="form-control form-control-sm"
+               placeholder="Search by name, hostname, IP, OS…">
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" id="btn-adv">
+        <i class="bi bi-sliders2"></i> Advanced
+      </button>
+      <div class="btn-group btn-group-sm" id="osFilter" role="group" aria-label="OS filter">
+        <button type="button" class="btn btn-outline-secondary active" data-os="">All OS</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="linux">
+          <i class="bi bi-terminal-fill me-1"></i>Linux</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="windows">
+          <i class="bi bi-windows me-1"></i>Windows</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="other">Other</button>
+      </div>
+      <div class="form-check form-switch mb-0 ms-1">
+        <input class="form-check-input" type="checkbox" id="showTemplates">
+        <label class="form-check-label small text-muted" for="showTemplates">Templates only</label>
+      </div>
+      <div class="form-check form-switch mb-0 ms-1">
+        <input class="form-check-input" type="checkbox" id="showInactive">
+        <label class="form-check-label small text-muted" for="showInactive">Include inactive</label>
+      </div>
+    </div>
+
+    <!-- Advanced filters -->
+    <div id="adv-panel">
+      <div class="row g-2">
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Power State</label>
+          <select id="f-power" class="form-select form-select-sm">
+            <option value="">Any</option>
+            <option>poweredOn</option><option>poweredOff</option><option>suspended</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Environment</label>
+          <select id="f-env" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Tier</label>
+          <select id="f-tier" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Owner</label>
+          <select id="f-owner" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">vCenter</label>
+          <select id="f-vcenter" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-1">Tag</label>
+          <input id="f-tag" type="text" class="form-control form-control-sm" placeholder="tag name">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-1">Group</label>
+          <input id="f-group" type="text" class="form-control form-control-sm" placeholder="group name">
+        </div>
+        <div class="col-6 col-md-2 d-flex align-items-end gap-2">
+          <button id="btn-apply" class="btn btn-primary btn-sm flex-fill">Apply</button>
+          <button id="btn-clear" class="btn btn-outline-secondary btn-sm flex-fill">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Nodes table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="nodesTable" class="table table-hover table-sm mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>Hostname</th>
+          <th>Power</th>
+          <th>OS</th>
+          <th>Environment</th>
+          <th>Tier</th>
+          <th>Owner</th>
+          <th>Primary IP</th>
+          <th>Datacenter</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PWR = {
+  poweredOn:  '<span class="pwr pwr-on">On</span>',
+  poweredOff: '<span class="pwr pwr-off">Off</span>',
+  suspended:  '<span class="pwr pwr-sus">Suspended</span>',
+  unknown:    '<span class="pwr pwr-unk">Unknown</span>',
+};
+const OS = {
+  linux:   '<span class="os-badge os-linux">Linux</span>',
+  windows: '<span class="os-badge os-windows">Windows</span>',
+  other:   '<span class="os-badge os-other">Other</span>',
+};
+
+let activeFilters = {};
+
+const table = $('#nodesTable').DataTable({
+  processing: true,
+  serverSide: true,
+  ajax: {
+    url: '/api/v1/nodes',
+    type: 'GET',
+    data: function(d) {
+      d.q           = $('#globalSearch').val().trim();
+      d.active      = $('#showInactive').is(':checked') ? 'all' : '1';
+      d.is_template = $('#showTemplates').is(':checked') ? '1' : '';
+      d.os_category = $('#osFilter .active').data('os') || '';
+      Object.assign(d, activeFilters);
+      return d;
+    },
+    error: function(xhr, err, msg) {
+      console.error('DataTables AJAX error', err, msg);
+    },
+  },
+  columns: [
+    { data: 'name',        render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>${r.is_template ? ' <span style="display:inline-block;padding:.1em .4em;border-radius:3px;font-size:.65rem;font-weight:700;background:#ede9fe;color:#6d28d9;vertical-align:middle;margin-left:.3rem;letter-spacing:.3px;">TMPL</span>' : ''}` },
+    { data: 'hostname',    defaultContent: '<span class="text-muted">—</span>' },
+    { data: 'power_state', render: v => PWR[v] || v },
+    { data: 'guest_os',    render: (v,_,r) => (OS[r.os_category] || '') + ' <span class="text-muted small">' + (v||'') + '</span>' },
+    { data: 'environment', defaultContent: '' },
+    { data: 'tier',        defaultContent: '' },
+    { data: 'owner',       defaultContent: '' },
+    { data: 'primary_ip',  defaultContent: '' },
+    { data: 'datacenter',  defaultContent: '' },
+    { data: 'last_seen',   defaultContent: '' },
+  ],
+  pageLength: 25,
+  lengthMenu: [25, 50, 100, 250],
+  order: [[0, 'asc']],
+  language: {
+    processing: '<div class="d-flex align-items-center gap-2 text-muted small p-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading…</div>',
+    emptyTable: 'No nodes found.',
+    zeroRecords: 'No matching nodes found.',
+  },
+  layout: {
+    topStart:    { pageLength: {} },
+    topEnd:      null,
+    bottomStart: { info: {} },
+    bottomEnd:   { paging: {} },
+  },
+});
+
+// Click row → node detail
+$('#nodesTable tbody').on('click', 'tr', function(e) {
+  if ($(e.target).is('a')) return;
+  const data = table.row(this).data();
+  if (data?.id) window.location = '/nodes/' + data.id;
+});
+
+// Search with debounce
+let searchTimer;
+$('#globalSearch').on('input', function() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => table.ajax.reload(), 350);
+});
+
+$('#showInactive').on('change', () => table.ajax.reload());
+$('#showTemplates').on('change', () => table.ajax.reload());
+
+$('#osFilter button').on('click', function() {
+  $('#osFilter button').removeClass('active');
+  $(this).addClass('active');
+  table.ajax.reload();
+});
+
+// Advanced panel toggle
+$('#btn-adv').on('click', function() {
+  const p = document.getElementById('adv-panel');
+  p.classList.toggle('show');
+  $(this).toggleClass('active');
+});
+
+// Apply / clear filters
+$('#btn-apply').on('click', function() {
+  activeFilters = {};
+  ['power','env','tier','owner','vcenter'].forEach(k => {
+    const v = document.getElementById('f-' + k)?.value;
+    if (v) activeFilters[k] = v;
+  });
+  ['tag','group'].forEach(k => {
+    const v = (document.getElementById('f-' + k)?.value || '').trim();
+    if (v) activeFilters[k] = v;
+  });
+  const hasFilters = Object.keys(activeFilters).length > 0;
+  $('#btn-adv').toggleClass('filter-active btn-outline-primary', hasFilters)
+               .toggleClass('btn-outline-secondary', !hasFilters);
+  table.ajax.reload();
+});
+
+$('#btn-clear').on('click', function() {
+  activeFilters = {};
+  ['power','env','tier','owner','vcenter'].forEach(k => {
+    const el = document.getElementById('f-' + k);
+    if (el) el.value = '';
+  });
+  ['tag','group'].forEach(k => {
+    const el = document.getElementById('f-' + k);
+    if (el) el.value = '';
+  });
+  $('#btn-adv').removeClass('filter-active btn-outline-primary').addClass('btn-outline-secondary');
+  table.ajax.reload();
+});
+
+// Populate advanced filter dropdowns
+function loadSelect(id, url, field) {
+  $.getJSON(url, d => {
+    const sel = document.getElementById(id);
+    (d.data || []).forEach(r => {
+      const opt = new Option(
+        r[field] + (r.node_count ? ` (${r.node_count})` : ''),
+        r[field]
+      );
+      sel.appendChild(opt);
+    });
+  });
+}
+loadSelect('f-env',     '/api/v1/environments', 'name');
+loadSelect('f-tier',    '/api/v1/tiers',        'name');
+loadSelect('f-owner',   '/api/v1/owners',       'name');
+$.getJSON('/api/v1/vcenters', d => {
+  const sel = document.getElementById('f-vcenter');
+  (d.data || []).forEach(r => {
+    sel.appendChild(new Option(r.label || r.url, r.label || r.url));
+  });
+});
+
+// Export CSV
+$('#btn-export').on('click', function() {
+  const params = new URLSearchParams({
+    limit: 50000, q: $('#globalSearch').val().trim(),
+    active: $('#showInactive').is(':checked') ? 'all' : '1',
+    ...activeFilters,
+  });
+  window.open('/api/v1/nodes?' + params.toString(), '_blank');
+});
+</script>
+{% endblock %}

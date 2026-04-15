@@ -1,0 +1,440 @@
+{% extends 'base.html' %}
+{% block title %}{{ node.name }} — CMDB{% endblock %}
+{% block page_title %}
+  <a href="{{ url_for('web.nodes') }}" class="text-muted text-decoration-none small">Nodes</a>
+  <span class="text-muted mx-1">/</span>
+  {{ node.name }}
+  {% if node.power_state == 'poweredOn' %}
+    <span class="badge bg-success ms-2 fw-normal" style="font-size:.7rem;">On</span>
+  {% elif node.power_state == 'poweredOff' %}
+    <span class="badge bg-secondary ms-2 fw-normal" style="font-size:.7rem;">Off</span>
+  {% elif node.power_state == 'suspended' %}
+    <span class="badge bg-warning text-dark ms-2 fw-normal" style="font-size:.7rem;">Suspended</span>
+  {% endif %}
+  {% if not node.active %}
+    <span class="badge bg-danger ms-1 fw-normal" style="font-size:.7rem;">Inactive</span>
+  {% endif %}
+  {% if node.is_template %}
+    <span class="badge ms-1 fw-normal" style="font-size:.7rem;background:#6f42c1;color:#fff;">
+      <i class="bi bi-stencil"></i> Template
+    </span>
+  {% endif %}
+{% endblock %}
+
+{% block topbar_actions %}
+{% if current_user.is_admin %}
+<button class="btn btn-sm btn-outline-primary" id="btn-edit-toggle">
+  <i class="bi bi-pencil"></i> Edit
+</button>
+<button class="btn btn-sm btn-outline-danger" id="btn-delete"
+        data-bs-toggle="modal" data-bs-target="#deleteModal">
+  <i class="bi bi-trash3"></i> Delete
+</button>
+{% endif %}
+<button class="btn btn-sm btn-outline-secondary" id="btn-history"
+        data-bs-toggle="modal" data-bs-target="#historyModal">
+  <i class="bi bi-clock-history"></i> History
+</button>
+<a href="{{ url_for('web.nodes') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left"></i> Back
+</a>
+{% endblock %}
+
+{% block head %}
+<style>
+  .detail-label { font-size:.72rem; font-weight:600; text-transform:uppercase;
+                  letter-spacing:.6px; color:#6c757d; margin-bottom:.2rem; }
+  .detail-value { font-size:.9rem; color:#1a202c; }
+  .detail-value .edit-field { margin-top:.2rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ── Left: node details ────────────────────────────────── -->
+  <div class="col-xl-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+        <i class="bi bi-cpu text-primary"></i>
+        <span class="fw-semibold">Node Details</span>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+
+          {% set editable = [
+            ('name',        node.name,        'Name'),
+            ('hostname',    node.hostname,     'Hostname'),
+            ('purpose',     node.purpose,      'Purpose'),
+            ('landscape',   node.landscape,    'Landscape'),
+            ('app_name',    node.app_name,     'App Name'),
+            ('deployment',  node.deployment,   'Deployment'),
+            ('cmdb_uuid',   node.cmdb_uuid,    'CMDB UUID'),
+          ] %}
+          {% set readonly = [
+            (node.guest_os,       'Operating System'),
+            (node.os_category,    'OS Category'),
+            (node.environment,    'Environment'),
+            (node.tier,           'Tier'),
+            (node.owner,          'Owner'),
+            ((node.cpus|string if node.cpus else None), 'CPUs'),
+            (((node.memory_gb|string) + ' GB' if node.memory_gb else None), 'Memory'),
+            (node.datacenter,     'Datacenter'),
+            (node.vcenter_label,  'vCenter'),
+            (node.vcenter_path,   'vCenter Path'),
+            ((node.first_seen|string if node.first_seen else None), 'First Seen'),
+            ((node.last_seen|string if node.last_seen else None), 'Last Seen'),
+          ] %}
+
+          {% for field, value, label in editable %}
+          <div class="col-md-4">
+            <div class="detail-label">{{ label }}</div>
+            <div class="detail-value">
+              <span class="view-val">{{ value or '—' }}</span>
+              {% if current_user.is_admin %}
+              <input type="text" class="form-control form-control-sm edit-field d-none"
+                     data-field="{{ field }}" value="{{ value or '' }}">
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+
+          {% for value, label in readonly %}
+          <div class="col-md-4">
+            <div class="detail-label">{{ label }}</div>
+            <div class="detail-value">{{ value or '—' }}</div>
+          </div>
+          {% endfor %}
+
+          <div class="col-12">
+            <div class="detail-label">Description</div>
+            <div class="detail-value">
+              <span class="view-val">{{ node.description or '—' }}</span>
+              {% if current_user.is_admin %}
+              <textarea class="form-control form-control-sm edit-field d-none"
+                        data-field="description" rows="3">{{ node.description or '' }}</textarea>
+              {% endif %}
+            </div>
+          </div>
+
+        </div>
+
+        {% if current_user.is_admin %}
+        <div id="edit-actions" class="d-none mt-3 pt-3 border-top">
+          <button class="btn btn-primary btn-sm" id="btn-save">
+            <i class="bi bi-check-lg"></i> Save Changes
+          </button>
+          <button class="btn btn-outline-secondary btn-sm ms-2" id="btn-cancel">Cancel</button>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: IPs / tags / groups / attrs ────────────────── -->
+  <div class="col-xl-4">
+
+    <!-- IPs -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+        <i class="bi bi-ethernet text-primary"></i><span class="fw-semibold">IP Addresses</span>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for ip in ips %}
+        <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+          <code>{{ ip.ip }}</code>
+          <div class="d-flex gap-1">
+            {% if ip.is_primary %}<span class="badge bg-primary">primary</span>{% endif %}
+            <span class="badge bg-light text-dark border">{{ ip.source }}</span>
+          </div>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted small py-2">No IPs recorded</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <!-- Tags -->
+    {% if tags %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+        <i class="bi bi-tags text-primary"></i><span class="fw-semibold">Tags</span>
+      </div>
+      <div class="card-body">
+        {% for tag in tags %}
+        <span class="tag-pill">{{ tag.name }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Groups -->
+    <div class="card border-0 shadow-sm mb-3" id="groups-card">
+      <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+        <i class="bi bi-collection text-primary"></i>
+        <span class="fw-semibold">Groups</span>
+        {% if current_user.is_admin %}
+        <button class="btn btn-sm btn-outline-primary ms-auto py-0 px-2" style="font-size:.75rem;"
+                data-bs-toggle="modal" data-bs-target="#addGroupModal">
+          <i class="bi bi-plus-lg"></i> Add
+        </button>
+        {% endif %}
+      </div>
+      <ul class="list-group list-group-flush" id="groups-list">
+        {% for g in groups %}
+        <li class="list-group-item d-flex justify-content-between align-items-center py-2"
+            id="grp-{{ g.id }}">
+          <a href="/groups/{{ g.id }}" class="text-decoration-none">{{ g.name }}</a>
+          <div class="d-flex align-items-center gap-2">
+            {% if g.is_ansible %}<span class="badge bg-primary">Ansible</span>{% endif %}
+            {% if g.is_nagios  %}<span class="badge bg-warning text-dark">Nagios</span>{% endif %}
+            {% if not g.is_ansible and not g.is_nagios %}<span class="badge bg-secondary">custom</span>{% endif %}
+            {% if current_user.is_admin %}
+            <button class="btn btn-sm btn-outline-danger py-0 px-1 btn-remove-group"
+                    data-gid="{{ g.id }}" data-gname="{{ g.name }}" style="font-size:.7rem;">
+              <i class="bi bi-x-lg"></i>
+            </button>
+            {% endif %}
+          </div>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted small py-2" id="no-groups-msg">No groups assigned</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {% if current_user.is_admin %}
+    <!-- Add to group modal -->
+    <div class="modal fade" id="addGroupModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title fw-semibold">Add to Group</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label small fw-semibold">Select Group</label>
+            <select id="sel-add-group" class="form-select">
+              <option value="">— choose a group —</option>
+              {% for g in all_groups %}
+              <option value="{{ g.id }}">{{ g.name }}{% if g.is_ansible %} [A]{% endif %}{% if g.is_nagios %} [N]{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-add-group-confirm">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Custom attributes -->
+    {% if attrs %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
+        <i class="bi bi-list-ul text-primary"></i><span class="fw-semibold">Attributes</span>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for attr in attrs %}
+        <li class="list-group-item d-flex justify-content-between py-2">
+          <span class="text-muted small">{{ attr.name }}</span>
+          <span class="small fw-semibold">{{ attr.value }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- History modal -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-semibold"><i class="bi bi-clock-history me-2"></i>Change History — {{ node.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="history-loading" class="text-center p-4">
+          <div class="spinner-border spinner-border-sm text-secondary"></div> Loading...
+        </div>
+        <table class="table table-sm table-hover mb-0 d-none" id="history-table">
+          <thead class="table-light">
+            <tr>
+              <th>When</th>
+              <th>Field</th>
+              <th>Old Value</th>
+              <th>New Value</th>
+              <th>Source</th>
+              <th>Changed By</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+        <div id="history-empty" class="text-muted small p-4 d-none">No history recorded yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if current_user.is_admin %}
+<script>
+const nodeId = {{ node.id }};
+let editing = false;
+
+function setEditing(on) {
+  editing = on;
+  $('.view-val').toggleClass('d-none', on);
+  $('.edit-field').toggleClass('d-none', !on);
+  $('#edit-actions').toggleClass('d-none', !on);
+  $('#btn-edit-toggle').html(
+    on ? '<i class="bi bi-x-lg"></i> Cancel' : '<i class="bi bi-pencil"></i> Edit'
+  ).toggleClass('btn-outline-danger', on).toggleClass('btn-outline-primary', !on);
+}
+
+$('#btn-edit-toggle').on('click', () => setEditing(!editing));
+$('#btn-cancel').on('click', () => setEditing(false));
+
+$('#btn-save').on('click', function() {
+  const payload = {};
+  $('.edit-field:not(.d-none)').each(function() {
+    payload[$(this).data('field')] = $(this).val();
+  });
+  $(this).prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+  $.ajax({
+    url: '/api/v1/nodes/' + nodeId,
+    type: 'PUT',
+    contentType: 'application/json',
+    data: JSON.stringify(payload),
+    success: () => location.reload(),
+    error: (xhr) => {
+      alert('Save failed: ' + xhr.responseText);
+      $('#btn-save').prop('disabled', false).html('<i class="bi bi-check-lg"></i> Save Changes');
+    },
+  });
+});
+
+// Group add / remove
+$('.btn-remove-group').on('click', function() {
+  const gid = $(this).data('gid'), gname = $(this).data('gname');
+  if (!confirm(`Remove "${gname}" from this node?`)) return;
+  $.ajax({
+    url: `/api/v1/nodes/${nodeId}/groups/${gid}`, type: 'DELETE',
+    success: () => {
+      $(`#grp-${gid}`).remove();
+      if ($('#groups-list li').length === 0) {
+        $('#groups-list').append('<li class="list-group-item text-muted small py-2" id="no-groups-msg">No groups assigned</li>');
+      }
+    },
+    error: (xhr) => alert('Error: ' + xhr.responseText),
+  });
+});
+
+$('#btn-add-group-confirm').on('click', function() {
+  const gid = $('#sel-add-group').val();
+  if (!gid) return;
+  $.ajax({
+    url: `/api/v1/nodes/${nodeId}/groups`, type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ group_id: parseInt(gid) }),
+    success: () => {
+      bootstrap.Modal.getInstance(document.getElementById('addGroupModal')).hide();
+      location.reload();
+    },
+    error: (xhr) => alert('Error: ' + xhr.responseText),
+  });
+});
+</script>
+{% endif %}
+
+<script>
+const _nodeId = {{ node.id }};
+let _historyLoaded = false;
+
+document.getElementById('historyModal').addEventListener('show.bs.modal', function() {
+  if (_historyLoaded) return;
+  $.getJSON('/api/v1/nodes/' + _nodeId + '/history', function(resp) {
+    const rows = resp.data || [];
+    $('#history-loading').addClass('d-none');
+    if (rows.length === 0) {
+      $('#history-empty').removeClass('d-none');
+      return;
+    }
+    const fieldLabels = {
+      '_created': '— created —',
+      'power_state': 'Power State', 'hostname': 'Hostname',
+      'cpus': 'CPUs', 'memory_gb': 'Memory (GB)',
+      'os_id': 'OS', 'environment_id': 'Environment',
+      'tier_id': 'Tier', 'owner_id': 'Owner',
+      'purpose': 'Purpose', 'landscape': 'Landscape',
+      'app_name': 'App Name', 'description': 'Description',
+      'deployment': 'Deployment', 'cmdb_uuid': 'CMDB UUID',
+      'vcenter_path': 'vCenter Path', 'active': 'Active',
+      'name': 'Name',
+    };
+    const tbody = $('#history-tbody');
+    rows.forEach(function(r) {
+      const label = fieldLabels[r.field] || r.field;
+      const when  = r.changed_at ? r.changed_at.replace('T', ' ').substring(0, 19) : '';
+      const src   = r.source === 'manual'
+        ? '<span class="badge bg-primary">manual</span>'
+        : '<span class="badge bg-secondary">sync</span>';
+      const by    = r.changed_by || '';
+      const oldV  = r.old_value !== null ? `<code>${$('<div>').text(r.old_value).html()}</code>` : '<span class="text-muted">—</span>';
+      const newV  = r.new_value !== null ? `<code>${$('<div>').text(r.new_value).html()}</code>` : '<span class="text-muted">—</span>';
+      tbody.append(`<tr>
+        <td class="text-nowrap small">${when}</td>
+        <td class="small fw-semibold">${label}</td>
+        <td class="small">${oldV}</td>
+        <td class="small">${newV}</td>
+        <td>${src}</td>
+        <td class="small">${by}</td>
+      </tr>`);
+    });
+    $('#history-table').removeClass('d-none');
+    _historyLoaded = true;
+  });
+});
+</script>
+
+<!-- Delete confirmation modal -->
+{% if current_user.is_admin %}
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Delete Node</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Permanently delete <strong>{{ node.name }}</strong> and all associated history, IP addresses, group memberships, tags, and attributes?</p>
+        <p class="text-danger small mb-0">This cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete">Delete permanently</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('btn-confirm-delete').addEventListener('click', function() {
+  this.disabled = true;
+  this.textContent = 'Deleting…';
+  fetch('/api/v1/nodes/' + _nodeId, {method: 'DELETE',
+    headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  .then(r => {
+    if (r.ok) { window.location = '/nodes'; }
+    else { r.json().then(d => alert('Error: ' + (d.error || r.status))); this.disabled = false; this.textContent = 'Delete permanently'; }
+  })
+  .catch(e => { alert('Request failed: ' + e); this.disabled = false; this.textContent = 'Delete permanently'; });
+});
+</script>
+{% endif %}
+{% endblock %}

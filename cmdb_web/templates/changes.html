@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+{% block title %}Recent Changes — CMDB{% endblock %}
+{% block page_title %}<i class="bi bi-activity me-2 text-primary"></i>Recent Changes{% endblock %}
+
+{% block topbar_actions %}
+<select id="limitSelect" class="form-select form-select-sm" style="width:auto;">
+  <option value="200">Last 200</option>
+  <option value="500" selected>Last 500</option>
+  <option value="1000">Last 1000</option>
+  <option value="2000">Last 2000</option>
+</select>
+<select id="sourceSelect" class="form-select form-select-sm" style="width:auto;">
+  <option value="">All sources</option>
+  <option value="sync">sync</option>
+  <option value="manual">manual</option>
+</select>
+<input id="fieldSearch" type="text" class="form-control form-control-sm" style="width:160px;"
+       placeholder="Filter by field…">
+{% endblock %}
+
+{% block head %}
+<style>
+  .field-pill {
+    display:inline-block; padding:.15em .5em; border-radius:3px;
+    font-size:.72rem; font-weight:600; background:#e9ecef; color:#495057;
+  }
+  .src-sync   { background:#cfe2ff; color:#084298; font-size:.7rem; padding:.15em .45em; border-radius:3px; font-weight:600; }
+  .src-manual { background:#d1e7dd; color:#0a3622; font-size:.7rem; padding:.15em .45em; border-radius:3px; font-weight:600; }
+  .val-old { color:#dc3545; text-decoration:line-through; word-break:break-all; }
+  .val-new { color:#198754; word-break:break-all; }
+  .val-null { color:#adb5bd; font-style:italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="changesTable" class="table table-hover table-sm mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th style="width:145px;">When</th>
+          <th>Node</th>
+          <th style="width:130px;">Field</th>
+          <th>Old Value</th>
+          <th>New Value</th>
+          <th style="width:70px;">Source</th>
+          <th style="width:110px;">Changed By</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const FIELD_LABELS = {
+  name: 'Name', hostname: 'Hostname', power_state: 'Power State',
+  cpus: 'CPUs', memory_gb: 'Memory (GB)', os_id: 'OS',
+  environment_id: 'Environment', tier_id: 'Tier', owner_id: 'Owner',
+  purpose: 'Purpose', landscape: 'Landscape', app_name: 'App Name',
+  description: 'Description', deployment: 'Deployment', cmdb_uuid: 'CMDB UUID',
+  vcenter_path: 'vCenter Path', active: 'Active', is_template: 'Is Template',
+};
+
+function fmtVal(v) {
+  if (v === null || v === undefined || v === '') return '<span class="val-null">—</span>';
+  return '<span>' + $('<span>').text(String(v)).html() + '</span>';
+}
+
+function buildRows(data) {
+  const tbody = document.querySelector('#changesTable tbody');
+  tbody.innerHTML = '';
+  const src = document.getElementById('sourceSelect').value;
+  const field = document.getElementById('fieldSearch').value.trim().toLowerCase();
+  const filtered = data.filter(r =>
+    (!src   || r.source === src) &&
+    (!field || (r.field||'').toLowerCase().includes(field))
+  );
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-4">No changes found.</td></tr>';
+    return;
+  }
+  filtered.forEach(r => {
+    const label = FIELD_LABELS[r.field] || r.field;
+    const srcBadge = r.source === 'manual'
+      ? `<span class="src-manual">manual</span>`
+      : `<span class="src-sync">sync</span>`;
+    const by = r.changed_by
+      ? `<span class="text-muted small">${$('<span>').text(r.changed_by).html()}</span>`
+      : '<span class="text-muted">—</span>';
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.dataset.nodeId = r.node_id;
+    tr.innerHTML = `
+      <td class="text-muted small">${r.changed_at || ''}</td>
+      <td><a href="/nodes/${r.node_id}" class="fw-semibold text-decoration-none">${$('<span>').text(r.node_name||'').html()}</a></td>
+      <td><span class="field-pill">${$('<span>').text(label).html()}</span></td>
+      <td class="val-old">${fmtVal(r.old_value)}</td>
+      <td class="val-new">${fmtVal(r.new_value)}</td>
+      <td>${srcBadge}</td>
+      <td>${by}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+let allData = [];
+
+function reload() {
+  const limit = document.getElementById('limitSelect').value;
+  $.getJSON('/api/v1/changes?limit=' + limit, function(resp) {
+    allData = resp.data || [];
+    buildRows(allData);
+  });
+}
+
+reload();
+
+document.getElementById('limitSelect').addEventListener('change', reload);
+document.getElementById('sourceSelect').addEventListener('change', () => buildRows(allData));
+
+let filterTimer;
+document.getElementById('fieldSearch').addEventListener('input', function() {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => buildRows(allData), 200);
+});
+
+// Click row → node detail
+document.getElementById('changesTable').addEventListener('click', function(e) {
+  const tr = e.target.closest('tr');
+  if (!tr || e.target.tagName === 'A') return;
+  const id = tr.dataset.nodeId;
+  if (id) window.location = '/nodes/' + id;
+});
+</script>
+{% endblock %}

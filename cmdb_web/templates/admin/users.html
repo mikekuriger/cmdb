@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Users — CMDB Admin{% endblock %}
+{% block page_title %}<i class="bi bi-person-gear me-2 text-primary"></i>User Management{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('web.admin_user_new') }}" class="btn btn-primary btn-sm">
+  <i class="bi bi-person-plus"></i> New User
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Username</th><th>Email</th><th>Type</th><th>Role</th>
+          <th>Status</th><th>Last Login</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="fw-semibold">{{ u.username }}</td>
+          <td class="text-muted small">{{ u.email or '—' }}</td>
+          <td>
+            {% if u.is_ldap %}
+            <span class="badge bg-info text-dark">LDAP</span>
+            {% else %}
+            <span class="badge bg-secondary">Local</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.is_admin %}
+            <span class="badge bg-warning text-dark">Admin</span>
+            {% else %}
+            <span class="text-muted small">Read-only</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.active %}
+            <span class="text-success small"><i class="bi bi-check-circle-fill"></i> Active</span>
+            {% else %}
+            <span class="text-danger small"><i class="bi bi-x-circle-fill"></i> Inactive</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ u.last_login or '—' }}</td>
+          <td>
+            <a href="{{ url_for('web.admin_user_edit', uid=u.id) }}"
+               class="btn btn-sm btn-outline-secondary">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

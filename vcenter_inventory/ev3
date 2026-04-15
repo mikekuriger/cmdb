@@ -1,0 +1,4 @@
+export GOVC_URL=https://ev3vccomp01a.corp.pvt
+export GOVC_USERNAME='administrator@vsphere.local'
+export GOVC_PASSWORD='kLo5(S&iYQSH'
+export GOVC_INSECURE="1"

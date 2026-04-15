@@ -1,0 +1,194 @@
+{% extends 'base.html' %}
+{% block title %}Groups — CMDB{% endblock %}
+{% block page_title %}<i class="bi bi-collection me-2 text-primary"></i>Groups{% endblock %}
+
+{% block topbar_actions %}
+{% if current_user.is_admin %}
+<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newGroupModal">
+  <i class="bi bi-plus-lg"></i> New Group
+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Filter strip -->
+<div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+  <div class="input-group input-group-sm" style="max-width:260px;">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input id="grp-search" type="text" class="form-control" placeholder="Search groups…">
+  </div>
+  <div class="form-check form-switch mb-0 ms-1">
+    <input class="form-check-input" type="checkbox" id="f-ansible">
+    <label class="form-check-label small" for="f-ansible">
+      <span class="badge bg-primary">Ansible</span>
+    </label>
+  </div>
+  <div class="form-check form-switch mb-0">
+    <input class="form-check-input" type="checkbox" id="f-nagios">
+    <label class="form-check-label small" for="f-nagios">
+      <span class="badge bg-warning text-dark">Nagios</span>
+    </label>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="groupsTable" class="table table-hover mb-0" style="width:100%">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>Used As</th>
+          <th>Description</th>
+          <th>Nodes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+{% if current_user.is_admin %}
+<!-- New Group Modal -->
+<div class="modal fade" id="newGroupModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-semibold">New Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Name <span class="text-danger">*</span></label>
+          <input type="text" id="ng-name" class="form-control" placeholder="e.g. hadoop">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold d-block mb-2">Used As</label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="ng-ansible">
+              <label class="form-check-label" for="ng-ansible">
+                <span class="badge bg-primary">Ansible</span>
+                <span class="text-muted small ms-1">inventory group</span>
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="ng-nagios">
+              <label class="form-check-label" for="ng-nagios">
+                <span class="badge bg-warning text-dark">Nagios</span>
+                <span class="text-muted small ms-1">hostgroup</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Description</label>
+          <input type="text" id="ng-desc" class="form-control" placeholder="Optional">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="btn-create-group">Create Group</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const isAdmin = {{ 'true' if current_user.is_admin else 'false' }};
+let dt = null;
+
+function usedAsBadges(r) {
+  let b = '';
+  if (r.is_ansible) b += '<span class="badge bg-primary me-1">Ansible</span>';
+  if (r.is_nagios)  b += '<span class="badge bg-warning text-dark me-1">Nagios</span>';
+  if (!b)           b  = '<span class="text-muted small">—</span>';
+  return b;
+}
+
+function buildParams() {
+  const p = {};
+  const q = $('#grp-search').val().trim();
+  if (q) p.q = q;
+  if ($('#f-ansible').is(':checked')) p.ansible = 1;
+  if ($('#f-nagios').is(':checked'))  p.nagios  = 1;
+  return '?' + new URLSearchParams(p).toString();
+}
+
+function loadTable() {
+  $.getJSON('/api/v1/groups' + buildParams(), function(resp) {
+    const data = resp.data || [];
+    const cols = [
+      { data: 'name',        render: (v,_,r) => `<a href="/groups/${r.id}" class="fw-semibold text-decoration-none">${v}</a>` },
+      { data: null,          render: (_,__,r) => usedAsBadges(r) },
+      { data: 'description', defaultContent: '<span class="text-muted">—</span>' },
+      { data: 'node_count',  defaultContent: '0' },
+      { data: null, orderable: false, render: (_,__,r) =>
+          isAdmin
+            ? `<button class="btn btn-sm btn-outline-danger btn-del-group" data-id="${r.id}" data-name="${r.name}">
+                 <i class="bi bi-trash"></i>
+               </button>`
+            : ''
+      },
+    ];
+
+    if (dt) { dt.destroy(); }
+    dt = $('#groupsTable').DataTable({
+      data, columns: cols, pageLength: 25, order: [[0, 'asc']],
+    });
+  });
+}
+
+loadTable();
+
+// Filters
+let searchTimer;
+$('#grp-search').on('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTable, 300); });
+$('#f-ansible, #f-nagios').on('change', loadTable);
+
+// Row click → group detail
+$('#groupsTable tbody').on('click', 'tr', function(e) {
+  if ($(e.target).closest('button, a').length) return;
+  const d = dt?.row(this).data();
+  if (d?.id) window.location = '/groups/' + d.id;
+});
+
+// Delete
+$('#groupsTable tbody').on('click', '.btn-del-group', function(e) {
+  e.stopPropagation();
+  const id = $(this).data('id'), name = $(this).data('name');
+  if (!confirm(`Delete group "${name}"? Nodes will not be deleted.`)) return;
+  $.ajax({
+    url: `/api/v1/groups/${id}`, type: 'DELETE',
+    success: loadTable,
+    error: (xhr) => alert('Error: ' + xhr.responseText),
+  });
+});
+
+{% if current_user.is_admin %}
+$('#btn-create-group').on('click', function() {
+  const name = $('#ng-name').val().trim();
+  if (!name) { alert('Name required'); return; }
+  $(this).prop('disabled', true);
+  $.ajax({
+    url: '/api/v1/groups', type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      name,
+      is_ansible: $('#ng-ansible').is(':checked') ? 1 : 0,
+      is_nagios:  $('#ng-nagios').is(':checked')  ? 1 : 0,
+      description: $('#ng-desc').val().trim(),
+    }),
+    success: (r) => window.location = '/groups/' + r.id,
+    error: (xhr) => {
+      alert('Error: ' + xhr.responseText);
+      $('#btn-create-group').prop('disabled', false);
+    },
+  });
+});
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Edit' if user else 'New' }} User — CMDB{% endblock %}
+{% block page_title %}
+  <i class="bi bi-person-gear me-2 text-primary"></i>
+  {{ 'Edit User: ' + user.username if user else 'New User' }}
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('web.admin_users') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left"></i> Back
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-person-fill me-1 text-primary"></i> Account Details
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Username</label>
+            <input type="text" name="username" class="form-control"
+                   value="{{ user.username if user else '' }}"
+                   {% if user %}readonly{% endif %} required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Email</label>
+            <input type="email" name="email" class="form-control"
+                   value="{{ user.email if user and user.email else '' }}">
+          </div>
+
+          {% if not (user and user.is_ldap) %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">
+              Password {% if user %}<span class="text-muted fw-normal">(blank = keep current)</span>{% endif %}
+            </label>
+            <input type="password" name="password" class="form-control"
+                   {% if not user %}required{% endif %}>
+          </div>
+          {% endif %}
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_admin" id="is_admin"
+                     {% if user and user.is_admin %}checked{% endif %}>
+              <label class="form-check-label small" for="is_admin">Admin access (can edit nodes and manage users)</label>
+            </div>
+          </div>
+
+          {% if not user %}
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_ldap" id="is_ldap">
+              <label class="form-check-label small" for="is_ldap">LDAP / SSO user (no local password)</label>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if user %}
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="active" id="active"
+                     {% if user.active %}checked{% endif %}>
+              <label class="form-check-label small" for="active">Account active</label>
+            </div>
+          </div>
+          {% endif %}
+
+          <button type="submit" class="btn btn-primary">
+            {{ 'Save Changes' if user else 'Create User' }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {% if user %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-key-fill me-1 text-warning"></i> API Key
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          Used for command-line access. Pass as
+          <code>Authorization: Bearer &lt;key&gt;</code> or via <code>--key</code> flag.
+        </p>
+        {% if user.api_key %}
+        <div class="bg-light rounded p-2 mb-3" style="word-break:break-all;">
+          <code class="small">{{ user.api_key }}</code>
+        </div>
+        {% else %}
+        <p class="text-muted small">No API key generated yet.</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('web.admin_regen_key', uid=user.id) }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-repeat"></i> {{ 'Regenerate' if user.api_key else 'Generate' }} API Key
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

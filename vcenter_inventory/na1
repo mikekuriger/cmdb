@@ -1,0 +1,4 @@
+export GOVC_URL=https://phx1-thryv-vcsa01.expedient.com
+export GOVC_USERNAME='svc_ussinf@corp.pvt'
+export GOVC_PASSWORD='JmN24py!'
+export GOVC_INSECURE="1"
