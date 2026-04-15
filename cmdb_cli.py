@@ -22,6 +22,8 @@ Examples:
   cmdb groups
   cmdb scan-runs
   cmdb nodes --os windows -o csv > windows.csv
+  cmdb deletenode 4312
+  cmdb deletenode 4312 --force
 """
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
@@ -60,6 +62,25 @@ def api_get(path, params=None):
     except urllib.error.URLError as e:
         print(f'Connection error: {e.reason}', file=sys.stderr)
         print(f'Is CMDB_URL correct? ({BASE_URL})', file=sys.stderr)
+        sys.exit(1)
+
+
+
+def api_delete(path):
+    url = BASE_URL.rstrip('/') + '/api/v1/' + path
+    req = urllib.request.Request(
+        url, headers={'Authorization': f'Bearer {API_KEY}', 'Accept': 'application/json'},
+        method='DELETE'
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f'HTTP {e.code}: {body}', file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f'Connection error: {e.reason}', file=sys.stderr)
         sys.exit(1)
 
 
@@ -287,6 +308,27 @@ def cmd_groupshow(args, fmt):
                           'environment', 'owner', 'primary_ip'])
 
 
+
+def cmd_deletenode(args):
+    """Delete a node by ID, with optional confirmation."""
+    node_id = args.id
+    # Fetch name for the confirmation prompt
+    try:
+        info = api_get(f'nodes/{node_id}')
+    except SystemExit:
+        sys.exit(1)
+    name = info.get('name', f'id={node_id}')
+    if not args.force:
+        confirm = input(
+            f'Permanently delete node "{name}" (id={node_id}) and ALL associated data? [y/N] '
+        ).strip().lower()
+        if confirm != 'y':
+            print('Aborted.')
+            sys.exit(0)
+    api_delete(f'nodes/{node_id}')
+    print(f'Deleted: {name} (id={node_id})')
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -325,6 +367,11 @@ def main():
     # node
     pd = sub.add_parser('node', help='Show full detail for a single node')
     pd.add_argument('id', type=int, help='Node ID')
+
+    # deletenode
+    pdn = sub.add_parser('deletenode', help='Permanently delete a node by ID')
+    pdn.add_argument('id', type=int, help='Node ID to delete')
+    pdn.add_argument('--force', '-f', action='store_true', help='Skip confirmation prompt')
 
     # lookup tables
     for ep, hlp in [
@@ -390,6 +437,7 @@ def main():
     elif args.cmd == 'removefromgroup': cmd_removefromgroup(args, fmt)
     elif args.cmd == 'groupshow':       cmd_groupshow(args, fmt)
     elif args.cmd == 'deletegroup':     cmd_deletegroup(args)
+    elif args.cmd == 'deletenode':     cmd_deletenode(args)
     elif args.cmd == 'groups':
         params = {}
         if getattr(args, 'ansible', False): params['ansible'] = 1

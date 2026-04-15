@@ -11,6 +11,7 @@
    - [Nodes](#nodes)
    - [Object Detail Pages](#object-detail-pages)
    - [Groups](#groups)
+   - [Recent Changes](#recent-changes)
    - [Admin — User Management](#admin--user-management)
 5. [Data Sync](#data-sync)
    - [Full Refresh](#full-refresh)
@@ -24,6 +25,7 @@
 7. [Command Line Tool](#command-line-tool)
    - [Setup](#setup)
    - [Querying Nodes](#querying-nodes)
+   - [Deleting a Node](#deleting-a-node)
    - [Group Management](#group-management)
    - [Lookup Commands](#lookup-commands)
    - [Scripting Examples](#scripting-examples)
@@ -58,7 +60,7 @@ vCenter (na1 + ev3)
         │         │
         │         └─ cmdb_import.py ── CSV → MySQL
         │
-        └─ cmdb_sync_fast.py      ── event-based incremental sync (every 30 min)
+        └─ cmdb_sync_fast.py      ── parallel direct scan (every 30 min)
                   │
               MySQL (cmdb)  ← runs on na1lnptcmdb-01
                   │
@@ -109,7 +111,7 @@ The left sidebar provides access to all object types, each showing a live count 
 |---|---|
 | **Inventory** | Nodes, IP Addresses, Operating Systems |
 | **Metadata** | Environments, Tiers, Owners, Tags, Groups |
-| **History** | Scan Runs |
+| **History** | Recent Changes, Scan Runs |
 | **Admin** | Users *(admin only)* |
 
 ---
@@ -120,9 +122,12 @@ The Nodes page is the primary view. It displays all active VMs in a sortable, pa
 
 **Columns:** Name · Hostname · Power State · OS · Environment · Tier · Owner · Primary IP · Datacenter · Last Seen
 
-**Searching:**
-- The search box at the top filters across name, hostname, IP address, and OS simultaneously
-- Results update as you type
+**Toolbar:**
+- The **search box** filters across name, hostname, IP address, and OS simultaneously — results update as you type
+- **All OS / Linux / Windows / Other** — segmented filter button to restrict by OS category
+- **Templates only** — toggle to show only VM templates
+- **Include inactive** — toggle to include VMs marked inactive (not seen in last sync)
+- **Export CSV** — downloads the current filtered view
 
 **Advanced Filters** (click the *Advanced* button):
 
@@ -154,7 +159,11 @@ Displays all fields for a single VM including:
 - Group memberships
 - Custom attributes from vCenter
 
+VM templates are marked with a **TMPL** badge in the nodes list and a purple **Template** badge on the detail page.
+
 **Admin edit:** Admins see an *Edit* button that enables inline editing of metadata fields. Changes are saved immediately to the database.
+
+**Delete (admins):** The *Delete* button (next to Edit) opens a confirmation modal and permanently removes the node and all associated records (history, IPs, group memberships, tags, attributes). This cannot be undone.
 
 **Group membership (admins):** The Groups card on the node detail page has an *Add* button (opens a dropdown of all groups) and an ✕ button next to each current group to remove it.
 
@@ -208,6 +217,18 @@ A single group such as `hadoop` can carry both flags — you do not need two sep
 
 ---
 
+### Recent Changes
+
+The **Recent Changes** page (History → Recent Changes) shows the most recent field-level changes across all nodes.
+
+- Use the **source** dropdown to filter by `sync` (automated) or `manual` (admin edits via UI)
+- Use the **field** filter box to focus on a specific field (e.g. `power_state`, `owner`)
+- Old values are shown in red with strikethrough; new values in green
+- Clicking a row navigates to that node's detail page
+- Results default to the last 500 changes; the dropdown adjusts up to 2000
+
+---
+
 ### Admin — User Management
 
 Accessible from the sidebar for admin accounts only (`Admin → Users`).
@@ -249,22 +270,17 @@ Run nightly at 2:00 AM by cron on `na1lnptcmdb-01`. Exports all VMs from both vC
 
 ### Fast Incremental Sync
 
-Runs every 30 minutes by cron on `na1lnptcmdb-01`. Polls the vCenter events API for changes since the last run and updates only the affected VMs.
+Runs every 30 minutes by cron on `na1lnptcmdb-01`. Uses a direct parallel scan via `govc` — not the vCenter events API, which has reliability issues with large inventories.
 
-**Events detected:**
+**What it does:**
+1. Discovers all VM paths in each vCenter datacenter via `govc find`
+2. Fetches full VM details in parallel (20 workers, 50 VMs per batch)
+3. Upserts every VM into MySQL — detects renames using the stable vCenter `MoRef` ID as the primary key
+4. Marks any VM not seen in this run as `active=0`
 
-| Event | Action |
-|---|---|
-| VmPoweredOnEvent, VmPoweredOffEvent, VmSuspendedEvent | Update power state |
-| VmCreatedEvent, VmClonedEvent, VmRegisteredEvent, VmDeployedEvent | Insert or update VM |
-| VmReconfiguredEvent | Refresh all fields (CPU/RAM may have changed) |
-| VmRenamedEvent | Update name |
-| VmRemovedEvent, VmUnregisteredEvent | Mark VM as `active=0` |
+**Rename detection:** Each VM has a stable `moref` column (`vm-NNNNNN`) that survives renames in vCenter. When a VM is renamed, the sync finds it by MoRef, updates the `name` field, and records the rename in node history — rather than creating a duplicate record.
 
-**Not detected by fast sync** (caught by nightly full refresh):
-- Tag changes
-- Custom attribute changes without a reconfigure event
-- IP changes without a reconfigure event
+**Typical runtime:** ~3.5 minutes for 5,000+ VMs across two vCenters.
 
 ### Cron Schedule
 
@@ -275,7 +291,7 @@ On `na1lnptcmdb-01`, cron runs as `mk7193`:
 0    2 * * *  /home/mk7193/vcenter/cmdb_cron.sh full  >> /home/mk7193/vcenter/logs/cmdb_sync.log 2>&1
 ```
 
-Logs: `/home/mk7193/vcenter/logs/cmdb_sync.log`
+Logs: `/home/mk7193/vcenter_inventory/logs/cmdb_sync.log`
 
 A lock file at `/tmp/cmdb_sync.lock` prevents overlapping runs.
 
@@ -351,6 +367,10 @@ Update editable fields on a node.
 
 Allowed fields: `purpose`, `landscape`, `app_name`, `description`, `deployment`, `cmdb_uuid`, `owner_id`, `environment_id`, `tier_id`
 
+#### `DELETE /api/v1/nodes/<id>` *(admin)*
+
+Permanently deletes a node and all associated records: change history, IP addresses, group memberships, tags, and custom attributes. There is no soft-delete — this removes the row from the database entirely.
+
 ---
 
 ### Groups API
@@ -417,6 +437,7 @@ All return `{ "data": [...] }`.
 | `GET /api/v1/ips` | IP addresses (`?q=`, `?node_id=`) |
 | `GET /api/v1/vcenters` | vCenter instances |
 | `GET /api/v1/scan-runs` | Last 100 sync runs |
+| `GET /api/v1/changes` | Recent node field-level changes (`?limit=500`, max 2000) |
 | `GET /api/v1/counts` | Sidebar counts for all object types |
 
 Each lookup object also has `GET /api/v1/<type>/<id>` and `PUT /api/v1/<type>/<id>` endpoints.
@@ -541,6 +562,24 @@ python3 ~/cmdb_cli.py -o csv nodes --os linux --env PROD > linux_prod.csv
 python3 ~/cmdb_cli.py node 4965
 python3 ~/cmdb_cli.py -o json node 4965
 ```
+
+---
+
+### Deleting a Node
+
+`deletenode` permanently removes a node and all associated data. This is intended for cleaning up stale records (e.g. pre-rename duplicates, decommissioned servers that were never synced out).
+
+```bash
+# With confirmation prompt
+python3 ~/cmdb_cli.py deletenode 4312
+
+# Skip confirmation (for scripts)
+python3 ~/cmdb_cli.py deletenode 4312 --force
+```
+
+The prompt shows the node name before proceeding. The node is removed from the database immediately.
+
+> **Note:** If the node still exists in vCenter, the next sync will re-insert it. Only delete records for VMs that have been decommissioned or are genuine duplicates.
 
 ---
 
@@ -751,13 +790,13 @@ sudo nginx -t && sudo systemctl reload nginx
 │           ├── users.html
 │           └── user_form.html
 │
-└── vcenter/                        # vCenter sync scripts
+└── vcenter_inventory/              # vCenter sync scripts
     ├── vcenter_inventory.py        # Full vCenter export → CSV
     ├── cmdb_import.py              # CSV → MySQL import
-    ├── cmdb_sync_fast.py           # Incremental event-based sync
+    ├── cmdb_sync_fast.py           # Parallel direct sync (every 30 min)
     ├── cmdb_cron.sh                # Cron wrapper (fast + full modes)
-    ├── na1                         # govc env file for PHX1 vCenter
-    ├── ev3                         # govc env file for ev3 vCenter
+    ├── na1                         # govc env file for PHX1 vCenter (na1 / PHX1-THRYV-DC)
+    ├── ev3                         # govc env file for ev3 vCenter (ev3dccomp01)
     └── logs/
         └── cmdb_sync.log           # Sync run logs
 
@@ -775,8 +814,8 @@ sudo nginx -t && sudo systemctl reload nginx
 
 **Cron jobs** (runs as `mk7193`):
 ```
-*/30 * * * *  /home/mk7193/vcenter/cmdb_cron.sh fast >> /home/mk7193/vcenter/logs/cmdb_sync.log 2>&1
-0    2 * * *  /home/mk7193/vcenter/cmdb_cron.sh full >> /home/mk7193/vcenter/logs/cmdb_sync.log 2>&1
+*/30 * * * *  /home/mk7193/vcenter_inventory/cmdb_cron.sh fast >> /home/mk7193/vcenter_inventory/logs/cmdb_sync.log 2>&1
+0    2 * * *  /home/mk7193/vcenter_inventory/cmdb_cron.sh full >> /home/mk7193/vcenter_inventory/logs/cmdb_sync.log 2>&1
 ```
 
 **Service management:**
@@ -790,9 +829,9 @@ sudo journalctl -u mysqld -f         # live MySQL logs
 
 **Manual sync:**
 ```bash
-~/vcenter/cmdb_cron.sh full                              # run a full sync now
-~/vcenter/cmdb_cron.sh fast                              # run a fast incremental sync now
-python3 ~/vcenter/cmdb_sync_fast.py --dry-run            # fast sync without DB writes
+~/vcenter_inventory/cmdb_cron.sh full                              # run a full sync now
+~/vcenter_inventory/cmdb_cron.sh fast                              # run a fast incremental sync now
+python3 ~/vcenter_inventory/cmdb_sync_fast.py --dry-run            # fast sync without DB writes
 ```
 
 **User management:**
