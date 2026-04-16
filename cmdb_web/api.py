@@ -73,7 +73,7 @@ def _build_where(params):
             conds.append(f'{col} = %s')
             vals.append(v)
 
-    # Name-based filters — partial match (LIKE) so 'kuriger' matches 'Michael Kuriger'
+    # Dropdown filters — exact match (values come from the database dropdowns)
     for param, col in [
         ('env',       'e.name'),
         ('tier',      't.name'),
@@ -83,8 +83,8 @@ def _build_where(params):
     ]:
         v = params.get(param)
         if v:
-            conds.append(f'{col} LIKE %s')
-            vals.append(f'%{v}%')
+            conds.append(f'{col} = %s')
+            vals.append(v)
 
     # ID-based filters (used by object detail pages)
     for param, col in [
