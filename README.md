@@ -24,10 +24,13 @@
    - [Lookup Tables](#lookup-tables-api)
 7. [Command Line Tool](#command-line-tool)
    - [Setup](#setup)
+   - [Output Formats](#output-formats)
    - [Querying Nodes](#querying-nodes)
+   - [Displaying Fields](#displaying-fields)
+   - [Updating Nodes](#updating-nodes)
    - [Deleting a Node](#deleting-a-node)
    - [Group Management](#group-management)
-   - [Lookup Commands](#lookup-commands)
+   - [Lookup Tables](#lookup-tables)
    - [Scripting Examples](#scripting-examples)
 8. [LDAP Configuration](#ldap-configuration)
 9. [SSL / HTTPS](#ssl--https)
@@ -448,6 +451,8 @@ Each lookup object also has `GET /api/v1/<type>/<id>` and `PUT /api/v1/<type>/<i
 
 The CLI tool (`cmdb_cli.py`) lives on `na1lnptcmdb-01` at `~/cmdb_cli.py`. It can be copied to any machine that can reach the production server.
 
+The interface uses flag-based syntax (similar to nVentory's `nv` tool) — `--get`, `--exactget`, `--name`, `--set`, `--delete`, and `--addtonodegroup` rather than subcommands.
+
 ### Setup
 
 ```bash
@@ -459,221 +464,224 @@ Add these to your `~/.bashrc` or `~/.bash_profile` for persistence.
 
 You can also pass them inline:
 ```bash
-python3 ~/cmdb_cli.py --url https://na1lnptcmdb-01.corp.pvt --key <api_key> nodes
+python3 ~/cmdb_cli.py --url https://na1lnptcmdb-01.corp.pvt --key <api_key> --name web01
 ```
+
+---
 
 ### Output Formats
 
-The `-o` / `--output` flag controls output format and must appear **before** the subcommand:
+The `-o` / `--output` flag controls output format:
 
 ```bash
-python3 ~/cmdb_cli.py nodes                    # names only (default)
-python3 ~/cmdb_cli.py -o json nodes            # JSON
-python3 ~/cmdb_cli.py -o csv  nodes > out.csv  # CSV
+python3 ~/cmdb_cli.py --name web01                    # table (default)
+python3 ~/cmdb_cli.py -o json --name web01            # JSON
+python3 ~/cmdb_cli.py -o csv --get os=linux > out.csv # CSV
 ```
 
 ---
 
 ### Querying Nodes
 
-By default, `nodes` prints one node name per line plus a count to stderr. Use `--all-fields` to see the full table with hostname, power state, OS, owner, IP, etc.
+With no `--fields` or `--allfields`, `--get`/`--name` prints one name per line.
+Add `--allfields` or `--fields` to see columns.
 
-#### List nodes (names only)
+#### Look up a node by name (partial match)
 ```bash
-python3 ~/cmdb_cli.py nodes
+python3 ~/cmdb_cli.py --name web01
+python3 ~/cmdb_cli.py --name web01 --allfields
 ```
 
-#### List nodes with full details
+#### Exact name match
 ```bash
-python3 ~/cmdb_cli.py nodes --all-fields
+python3 ~/cmdb_cli.py --exactget name=web01.corp.pvt
 ```
 
-#### Search by name / hostname / IP
+#### Search by any field
 ```bash
-python3 ~/cmdb_cli.py nodes --q web01
-python3 ~/cmdb_cli.py nodes --q 10.6.32
+# --get does a substring/partial match
+python3 ~/cmdb_cli.py --get os=linux
+python3 ~/cmdb_cli.py --get env=PROD
+python3 ~/cmdb_cli.py --get owner=kuriger
+python3 ~/cmdb_cli.py --get power=poweredOn
+python3 ~/cmdb_cli.py --get tag=kubernetes
+python3 ~/cmdb_cli.py --get group=hadoop
+python3 ~/cmdb_cli.py --get datacenter=PHX1
 ```
 
-#### Filter by OS category
+#### Combine multiple filters (all must match — AND logic)
 ```bash
-python3 ~/cmdb_cli.py nodes --os linux
-python3 ~/cmdb_cli.py nodes --os windows
-python3 ~/cmdb_cli.py nodes --os other
-```
-
-#### Filter by environment (partial match)
-```bash
-python3 ~/cmdb_cli.py nodes --env PROD
-python3 ~/cmdb_cli.py nodes --env DEV
-```
-
-#### Filter by tier (partial match)
-```bash
-python3 ~/cmdb_cli.py nodes --tier Production
-python3 ~/cmdb_cli.py nodes --tier prod      # matches "Production", "prod-web", etc.
-```
-
-#### Filter by owner (partial match)
-```bash
-python3 ~/cmdb_cli.py nodes --owner "Josh Marceaux"
-python3 ~/cmdb_cli.py nodes --owner kuriger   # partial match — no need for full name
-python3 ~/cmdb_cli.py nodes --owner michael   # matches any owner with "michael" in the name
-```
-
-#### Filter by power state
-```bash
-python3 ~/cmdb_cli.py nodes --power poweredOn
-python3 ~/cmdb_cli.py nodes --power poweredOff
-```
-
-#### Filter by tag
-```bash
-python3 ~/cmdb_cli.py nodes --tag kubernetes
-```
-
-#### Filter by group
-```bash
-python3 ~/cmdb_cli.py nodes --group hadoop
-```
-
-#### Combine filters
-```bash
-python3 ~/cmdb_cli.py nodes --os linux --env PROD --power poweredOn
-python3 ~/cmdb_cli.py nodes --owner sherpa --os linux --all-fields
+python3 ~/cmdb_cli.py --get os=linux --get env=PROD --get power=poweredOn
+python3 ~/cmdb_cli.py --get owner=sherpa --get os=linux --allfields
 ```
 
 #### Include inactive nodes
 ```bash
-python3 ~/cmdb_cli.py nodes --all
+python3 ~/cmdb_cli.py --get env=PROD --all
 ```
 
 #### Limit results
 ```bash
-python3 ~/cmdb_cli.py nodes --os linux --limit 50
+python3 ~/cmdb_cli.py --get os=linux --limit 50
 ```
 
-#### Export all Linux PROD nodes to CSV
+---
+
+### Displaying Fields
+
+Use `--fields` to control which columns are shown, or `--allfields` for the full default set.
+
 ```bash
-python3 ~/cmdb_cli.py -o csv nodes --os linux --env PROD > linux_prod.csv
+# Show specific fields for a node
+python3 ~/cmdb_cli.py --name web01 --fields hostname,power_state,owner
+
+# Show group memberships
+python3 ~/cmdb_cli.py --name web01 --fields name,groups
+
+# Show just the name (useful for scripting)
+python3 ~/cmdb_cli.py --get os=linux --get env=PROD --fields name
+
+# Full wide table
+python3 ~/cmdb_cli.py --get env=PROD --allfields
 ```
 
-#### Show full detail for a single node (by ID)
+**Available field names for `--fields`:**
+
+| Field | Description |
+|---|---|
+| `name` | Node name |
+| `hostname` | Hostname |
+| `power` / `power_state` | Power state |
+| `os` / `os_category` | OS category (linux/windows/other) |
+| `env` / `environment` | Environment |
+| `tier` | Tier |
+| `owner` | Owner name |
+| `ip` / `primary_ip` | Primary IP address |
+| `datacenter` | Datacenter path |
+| `groups` / `node_groups` | Group memberships (comma-separated) |
+| `tags` | Tags (comma-separated) |
+| `template` / `is_template` | Whether this is a VM template |
+| `cpus` | CPU count |
+| `memory_gb` | RAM in GB |
+| `purpose`, `app_name`, `description` | Custom metadata fields |
+| `last_seen`, `first_seen` | Sync timestamps |
+
+> **Note:** `--fields groups` requires one extra API call per node. For large result sets (>50 nodes), use `--objecttype groups --shownodes` instead.
+
+---
+
+### Updating Nodes
+
+`--set FIELD=VALUE` updates matched nodes. Combine with `--name` or `--get` to select targets.
+
 ```bash
-python3 ~/cmdb_cli.py node 4965
-python3 ~/cmdb_cli.py -o json node 4965
+# Set owner on a single node
+python3 ~/cmdb_cli.py --name web01 --set owner=kuriger --yes
+
+# Set multiple fields at once
+python3 ~/cmdb_cli.py --name web01 --set purpose="Web server" --set tier=Production --yes
+
+# Bulk update: set environment on all nodes matching a filter
+python3 ~/cmdb_cli.py --get env=DEV --set environment=Development --yes
+
+# Preview what would change without writing
+python3 ~/cmdb_cli.py --get owner=unknown --set owner=kuriger --dry-run
 ```
+
+**Settable fields:**
+
+| Field | Notes |
+|---|---|
+| `name`, `hostname` | Direct string fields |
+| `purpose`, `landscape`, `app_name`, `description`, `deployment`, `cmdb_uuid` | Custom metadata |
+| `owner` | Looked up by name in the owners table |
+| `environment` / `env` | Looked up by name |
+| `tier` | Looked up by name |
 
 ---
 
 ### Deleting a Node
 
-`deletenode` permanently removes a node and all associated data. This is intended for cleaning up stale records (e.g. pre-rename duplicates, decommissioned servers that were never synced out).
+`--delete` permanently removes matched nodes. Intended for cleaning up stale records (pre-rename duplicates, decommissioned VMs).
 
 ```bash
 # With confirmation prompt
-python3 ~/cmdb_cli.py deletenode 4312
+python3 ~/cmdb_cli.py --name old-vm-name --delete
 
 # Skip confirmation (for scripts)
-python3 ~/cmdb_cli.py deletenode 4312 --force
+python3 ~/cmdb_cli.py --name old-vm-name --delete --yes
+
+# Dry run first
+python3 ~/cmdb_cli.py --get env=DECOMMISSIONED --delete --dry-run
 ```
 
-The prompt shows the node name before proceeding. The node is removed from the database immediately.
-
-> **Note:** If the node still exists in vCenter, the next sync will re-insert it. Only delete records for VMs that have been decommissioned or are genuine duplicates.
+> **Note:** If the VM still exists in vCenter, the next sync will re-insert it. Only delete records for VMs that are truly gone.
 
 ---
 
 ### Group Management
 
-#### List all groups (names only — good for scripting)
+#### List all groups
 ```bash
-python3 ~/cmdb_cli.py groups
+python3 ~/cmdb_cli.py --objecttype groups
+python3 ~/cmdb_cli.py --objecttype groups --get name=hadoop
 ```
 
-#### List with full details (id, flags, description, node count)
+#### Show members of a group
 ```bash
-python3 ~/cmdb_cli.py groups --all-fields
-```
-
-#### Filter by Ansible or Nagios flag
-```bash
-python3 ~/cmdb_cli.py groups --ansible
-python3 ~/cmdb_cli.py groups --nagios
-python3 ~/cmdb_cli.py groups --ansible --nagios   # groups with both flags
+python3 ~/cmdb_cli.py --objecttype groups --exactget name=hadoop --shownodes
+python3 ~/cmdb_cli.py -o csv --objecttype groups --exactget name=hadoop --shownodes > hadoop.csv
 ```
 
 #### Create a group
 ```bash
-# Custom group (no automation flags)
-python3 ~/cmdb_cli.py creategroup decommission-candidates --desc "To be decommissioned Q3"
-
-# Ansible inventory group only
-python3 ~/cmdb_cli.py creategroup web-prod --ansible --desc "Production web tier"
-
-# Nagios hostgroup only
-python3 ~/cmdb_cli.py creategroup db-servers --nagios --desc "All database servers"
-
-# Both Ansible and Nagios
-python3 ~/cmdb_cli.py creategroup hadoop --ansible --nagios --desc "Hadoop cluster nodes"
+python3 ~/cmdb_cli.py --createnodegroup hadoop --ansible --nagios --desc "Hadoop cluster"
+python3 ~/cmdb_cli.py --createnodegroup decommission-q3 --desc "To be decommissioned Q3"
 ```
 
 #### Add nodes to a group
-
-Supports exact names, comma-separated lists, and `*` / `?` wildcards:
-
 ```bash
-# Add by exact name
-python3 ~/cmdb_cli.py addtogroup --name namenode01 --group hadoop
+# By exact name
+python3 ~/cmdb_cli.py --name namenode01 --addtonodegroup hadoop
 
-# Add by wildcard
-python3 ~/cmdb_cli.py addtogroup --name "hadoop*" --group hadoop
+# By pattern (partial match)
+python3 ~/cmdb_cli.py --name hadoop --addtonodegroup hadoop-prod
 
-# Add multiple patterns at once
-python3 ~/cmdb_cli.py addtogroup --name "namenode*,datanode*,jobtracker01" --group hadoop
-
-# Add to multiple groups simultaneously
-python3 ~/cmdb_cli.py addtogroup --name "web*" --group web-prod,ansible-web
+# Add to multiple groups at once
+python3 ~/cmdb_cli.py --name "web*" --addtonodegroup web-prod,ansible-web --yes
 ```
 
 #### Remove nodes from a group
 ```bash
-python3 ~/cmdb_cli.py removefromgroup --name "hadoop-old*" --group hadoop
-python3 ~/cmdb_cli.py removefromgroup --name "node01,node02" --group hadoop,web-prod
-```
-
-#### Show all nodes in a group
-```bash
-python3 ~/cmdb_cli.py groupshow hadoop
-python3 ~/cmdb_cli.py -o json groupshow hadoop
-python3 ~/cmdb_cli.py -o csv  groupshow hadoop > hadoop_nodes.csv
+python3 ~/cmdb_cli.py --name old-node --removefromnodegroup hadoop --yes
+python3 ~/cmdb_cli.py --get env=DECOMMISSIONED --removefromnodegroup prod-web --yes
 ```
 
 #### Delete a group
 ```bash
-# With confirmation prompt
-python3 ~/cmdb_cli.py deletegroup --group old-group
+# With confirmation
+python3 ~/cmdb_cli.py --objecttype groups --exactget name=old-group --delete
+
+# Skip confirmation
+python3 ~/cmdb_cli.py --objecttype groups --exactget name=old-group --delete --yes
 
 # Delete multiple groups
-python3 ~/cmdb_cli.py deletegroup --group "group1,group2,group3"
-
-# Skip confirmation (for scripts)
-python3 ~/cmdb_cli.py deletegroup --group old-group --force
+python3 ~/cmdb_cli.py --objecttype groups --get name=temp- --delete --yes
 ```
 
 ---
 
-### Lookup Commands
-
-These return tables of the reference objects:
+### Lookup Tables
 
 ```bash
-python3 ~/cmdb_cli.py os            # all operating systems with node counts
-python3 ~/cmdb_cli.py environments  # all environments
-python3 ~/cmdb_cli.py tiers         # all tiers
-python3 ~/cmdb_cli.py owners        # all owners with node counts
-python3 ~/cmdb_cli.py tags          # all tags
-python3 ~/cmdb_cli.py ips           # all IP addresses
-python3 ~/cmdb_cli.py scan-runs     # recent sync history
+python3 ~/cmdb_cli.py --lookup os            # operating systems with node counts
+python3 ~/cmdb_cli.py --lookup environments  # all environments
+python3 ~/cmdb_cli.py --lookup tiers         # all tiers
+python3 ~/cmdb_cli.py --lookup owners        # all owners with email + node count
+python3 ~/cmdb_cli.py --lookup tags          # all tags
+python3 ~/cmdb_cli.py --lookup ips           # all IP addresses
+python3 ~/cmdb_cli.py --scan-runs            # recent sync history (shortcut)
+python3 ~/cmdb_cli.py --lookup vcenters      # vCenter instances
 ```
 
 All support `-o json` and `-o csv`.
@@ -682,25 +690,32 @@ All support `-o json` and `-o csv`.
 
 ### Scripting Examples
 
-**Generate a flat list of all Ansible group names:**
+**Names of all Ansible groups:**
 ```bash
-python3 ~/cmdb_cli.py groups --ansible
+python3 ~/cmdb_cli.py --objecttype groups --get ansible=1 --fields name
 ```
 
-**Get all powered-on Linux nodes in JSON for an Ansible dynamic inventory script:**
+**Powered-on Linux nodes in JSON (e.g. for Ansible dynamic inventory):**
 ```bash
-python3 ~/cmdb_cli.py -o json nodes --os linux --power poweredOn
+python3 ~/cmdb_cli.py -o json --get os=linux --get power=poweredOn
 ```
 
-**Find all nodes belonging to a specific owner and export:**
+**Export all nodes for a given owner to CSV:**
 ```bash
-python3 ~/cmdb_cli.py -o csv nodes --owner kuriger > nodes.csv
+python3 ~/cmdb_cli.py -o csv --get owner=kuriger > nodes.csv
 ```
 
-**Bulk-add nodes to a group from a file:**
+**Show groups for a specific host:**
 ```bash
-# nodes.txt contains one name/pattern per line
-cat nodes.txt | tr '\n' ',' | xargs -I{} python3 ~/cmdb_cli.py addtogroup --name {} --group my-group --force
+python3 ~/cmdb_cli.py --name web01 --fields name,groups
+```
+
+**Bulk-add nodes listed in a file to a group:**
+```bash
+# nodes.txt has one name per line
+while read node; do
+  python3 ~/cmdb_cli.py --name "$node" --addtonodegroup my-group --yes
+done < nodes.txt
 ```
 
 ---
