@@ -275,7 +275,13 @@ def _enrich_for_display(rows, display_keys):
             r['_tags'] = raw.replace('|', ', ')
 
 
-def display_nodes(rows, display_keys, fmt):
+def display_nodes(rows, display_keys, fmt, labels=None):
+    """
+    display_keys : list of row-dict keys to display, or None for name-only
+    labels       : original field names as typed (same length as display_keys);
+                   when set, uses nv record format (name: / field: value);
+                   when None, uses flat table (used by --allfields)
+    """
     if fmt == 'json':
         print(json.dumps(rows, indent=2, default=str))
         return
@@ -294,7 +300,20 @@ def display_nodes(rows, display_keys, fmt):
 
     if fmt == 'csv':
         _fmt_csv(rows, display_keys)
+        print(f'{len(rows)} node(s)', file=sys.stderr)
+        return
+
+    if labels:
+        # nv-style record format: one block per node
+        pairs = list(zip(labels, display_keys))
+        for r in rows:
+            print(f'{r.get("name", "(unknown)")}:')
+            for label, key in pairs:
+                val = r.get(key)
+                print(f'  {label}: {val if val is not None else ""}')
+            print()
     else:
+        # Flat table — used for --allfields
         _fmt_table(rows, display_keys)
     print(f'{len(rows)} node(s)', file=sys.stderr)
 
@@ -718,11 +737,14 @@ def main():
         get_pairs += [('name', n) for n in args.name]
 
     # ── Resolve display fields ────────────────────────────────────────────
+    display_labels = None  # when set, triggers nv record format
     if args.allfields:
         display_keys = list(_ALL_FIELDS)
+        # display_labels stays None → flat table
     elif args.fields:
         raw = [_strip_bracket(f.strip()) for f in args.fields.split(',')]
-        display_keys = [_FIELD_DISPLAY.get(f, f) for f in raw]
+        display_keys  = [_FIELD_DISPLAY.get(f, f) for f in raw]
+        display_labels = raw  # preserve original names as block labels
     else:
         display_keys = None  # name-only
 
@@ -762,7 +784,7 @@ def main():
         if not args.fields and not args.allfields:
             return
 
-    display_nodes(rows, display_keys, fmt)
+    display_nodes(rows, display_keys, fmt, labels=display_labels)
 
 
 if __name__ == '__main__':
