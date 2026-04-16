@@ -42,7 +42,7 @@
       </div>
       <div class="form-check form-switch mb-0 ms-1">
         <input class="form-check-input" type="checkbox" id="showTemplates">
-        <label class="form-check-label small text-muted" for="showTemplates">Templates only</label>
+        <label class="form-check-label small text-muted" for="showTemplates">Include templates</label>
       </div>
       <div class="form-check form-switch mb-0 ms-1">
         <input class="form-check-input" type="checkbox" id="showInactive">
@@ -75,6 +75,10 @@
         <div class="col-6 col-md-2">
           <label class="form-label small mb-1">vCenter</label>
           <select id="f-vcenter" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-1">OS</label>
+          <select id="f-os" class="form-select form-select-sm"><option value="">Any</option></select>
         </div>
         <div class="col-6 col-md-3">
           <label class="form-label small mb-1">Tag</label>
@@ -142,7 +146,7 @@ const table = $('#nodesTable').DataTable({
     data: function(d) {
       d.q           = $('#globalSearch').val().trim();
       d.active      = $('#showInactive').is(':checked') ? 'all' : '1';
-      d.is_template = $('#showTemplates').is(':checked') ? '1' : '';
+      d.is_template = $('#showTemplates').is(':checked') ? '' : '0';
       d.os_category = $('#osFilter .active').data('os') || '';
       Object.assign(d, activeFilters);
       return d;
@@ -224,6 +228,8 @@ $('#btn-apply').on('click', function() {
     const v = (document.getElementById('f-' + k)?.value || '').trim();
     if (v) activeFilters[k] = v;
   });
+  const osId = document.getElementById('f-os')?.value;
+  if (osId) activeFilters['os_id'] = osId;
   const hasFilters = Object.keys(activeFilters).length > 0;
   $('#btn-adv').toggleClass('filter-active btn-outline-primary', hasFilters)
                .toggleClass('btn-outline-secondary', !hasFilters);
@@ -232,11 +238,7 @@ $('#btn-apply').on('click', function() {
 
 $('#btn-clear').on('click', function() {
   activeFilters = {};
-  ['power'].forEach(k => {
-    const v = document.getElementById('f-' + k)?.value;
-    if (v) activeFilters[k] = v;
-  });
-  ['env','tier','owner','vcenter'].forEach(k => {
+  ['power','env','tier','owner','vcenter','os'].forEach(k => {
     const el = document.getElementById('f-' + k);
     if (el) el.value = '';
   });
@@ -264,6 +266,14 @@ function loadSelect(id, url, field) {
 loadSelect('f-env',     '/api/v1/environments', 'name');
 loadSelect('f-tier',    '/api/v1/tiers',        'name');
 loadSelect('f-owner',   '/api/v1/owners',       'name');
+$.getJSON('/api/v1/os', d => {
+  const sel = document.getElementById('f-os');
+  (d.data || []).filter(r => r.node_count > 0)
+    .sort((a,b) => a.full_name.localeCompare(b.full_name))
+    .forEach(r => sel.appendChild(new Option(
+      r.full_name + ' (' + r.node_count + ')', r.id
+    )));
+});
 $.getJSON('/api/v1/vcenters', d => {
   const sel = document.getElementById('f-vcenter');
   (d.data || []).forEach(r => {
@@ -275,7 +285,9 @@ $.getJSON('/api/v1/vcenters', d => {
 $('#btn-export').on('click', function() {
   const params = new URLSearchParams({
     limit: 50000, q: $('#globalSearch').val().trim(),
-    active: $('#showInactive').is(':checked') ? 'all' : '1',
+    active:       $('#showInactive').is(':checked') ? 'all' : '1',
+    is_template:  $('#showTemplates').is(':checked') ? '' : '0',
+    os_category:  $('#osFilter .active').data('os') || '',
     ...activeFilters,
   });
   window.open('/api/v1/nodes?' + params.toString(), '_blank');
