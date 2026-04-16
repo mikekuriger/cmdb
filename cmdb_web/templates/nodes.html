@@ -212,9 +212,13 @@ $('#btn-adv').on('click', function() {
 // Apply / clear filters
 $('#btn-apply').on('click', function() {
   activeFilters = {};
-  ['power','env','tier','owner','vcenter'].forEach(k => {
+  ['power'].forEach(k => {
     const v = document.getElementById('f-' + k)?.value;
     if (v) activeFilters[k] = v;
+  });
+  ['env','tier','owner','vcenter'].forEach(k => {
+    const v = document.getElementById('f-' + k)?.value;
+    if (v) activeFilters[k + '_exact'] = v;
   });
   ['tag','group'].forEach(k => {
     const v = (document.getElementById('f-' + k)?.value || '').trim();
@@ -228,7 +232,11 @@ $('#btn-apply').on('click', function() {
 
 $('#btn-clear').on('click', function() {
   activeFilters = {};
-  ['power','env','tier','owner','vcenter'].forEach(k => {
+  ['power'].forEach(k => {
+    const v = document.getElementById('f-' + k)?.value;
+    if (v) activeFilters[k] = v;
+  });
+  ['env','tier','owner','vcenter'].forEach(k => {
     const el = document.getElementById('f-' + k);
     if (el) el.value = '';
   });

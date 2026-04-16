@@ -73,13 +73,25 @@ def _build_where(params):
             conds.append(f'{col} = %s')
             vals.append(v)
 
-    # Dropdown filters — exact match (values come from the database dropdowns)
+    # Partial match — CLI --get (substring search on typed values)
     for param, col in [
         ('env',       'e.name'),
         ('tier',      't.name'),
         ('owner',     'ow.name'),
         ('datacenter','dc.path'),
         ('vcenter',   'vc.label'),
+    ]:
+        v = params.get(param)
+        if v:
+            conds.append(f'{col} LIKE %s')
+            vals.append(f'%{v}%')
+
+    # Exact match — web UI dropdowns (values are already exact database names)
+    for param, col in [
+        ('env_exact',     'e.name'),
+        ('tier_exact',    't.name'),
+        ('owner_exact',   'ow.name'),
+        ('vcenter_exact', 'vc.label'),
     ]:
         v = params.get(param)
         if v:
