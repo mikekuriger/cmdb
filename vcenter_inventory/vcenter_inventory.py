@@ -138,7 +138,7 @@ def process_vm(env, field_map, vcenter_url, datacenter, vm_path):
     row["moref"]        = (v.get("self") or {}).get("value", "")
     row["is_template"]  = "1" if cfg.get("template") else "0"
     row["power_state"]  = rt.get("powerState", "")
-    row["guest_os"]     = cfg.get("guestFullName", "")
+    row["guest_os"]     = guest.get("guestFullName") or cfg.get("guestFullName", "")
     row["os_category"]  = categorize_os(row["guest_os"])
     row["ip_address"]   = guest.get("ipAddress", "")
     row["hostname"]     = guest.get("hostName", "")

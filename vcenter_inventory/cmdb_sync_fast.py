@@ -145,7 +145,7 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
     dc_row = cur.fetchone()
     dc_id  = dc_row["id"] if dc_row else None
 
-    os_full = cfg.get("guestFullName", "").strip()
+    os_full = (guest.get("guestFullName") or cfg.get("guestFullName") or "").strip()
     os_id   = None
     if os_full:
         cur.execute("SELECT id FROM operating_systems WHERE full_name=%s", (os_full,))
