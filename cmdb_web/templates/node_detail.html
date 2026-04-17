@@ -85,6 +85,7 @@
             ((node.first_seen|string if node.first_seen else None), 'First Seen'),
             ((node.last_seen|string if node.last_seen else None), 'Last Seen'),
           ] %}
+          {# status shown separately below as editable select #}
 
           {% for field, value, label in editable %}
           <div class="col-md-4">
@@ -105,6 +106,21 @@
             <div class="detail-value">{{ value or '—' }}</div>
           </div>
           {% endfor %}
+
+          <!-- Status — editable select (CMDB-only, not sync-derived) -->
+          <div class="col-md-4">
+            <div class="detail-label">Status</div>
+            <div class="detail-value">
+              <span class="view-val">{{ node.status or '—' }}</span>
+              {% if current_user.is_admin %}
+              <select class="form-select form-select-sm edit-field d-none" data-field="status_id">
+                {% for s in statuses %}
+                <option value="{{ s.id }}"{% if s.name == node.status %} selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
+              {% endif %}
+            </div>
+          </div>
 
           <div class="col-12">
             <div class="detail-label">Description</div>
@@ -377,6 +393,7 @@ document.getElementById('historyModal').addEventListener('show.bs.modal', functi
       'deployment': 'Deployment', 'cmdb_uuid': 'CMDB UUID',
       'vcenter_path': 'vCenter Path', 'active': 'Active',
       'name': 'Name',
+      'status_id': 'Status',
     };
     const tbody = $('#history-tbody');
     rows.forEach(function(r) {

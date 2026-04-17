@@ -29,6 +29,10 @@
       <span class="badge bg-warning text-dark">Nagios</span>
     </label>
   </div>
+  <div class="form-check form-switch mb-0 ms-2">
+    <input class="form-check-input" type="checkbox" id="f-empty">
+    <label class="form-check-label small text-muted" for="f-empty">Include empty</label>
+  </div>
 </div>
 
 <div class="card border-0 shadow-sm">
@@ -37,8 +41,8 @@
       <thead class="table-light">
         <tr>
           <th>Name</th>
-          <th>Used As</th>
           <th>Description</th>
+          <th>Owner</th>
           <th>Nodes</th>
           <th></th>
         </tr>
@@ -85,6 +89,10 @@
           <label class="form-label small fw-semibold">Description</label>
           <input type="text" id="ng-desc" class="form-control" placeholder="Optional">
         </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Owner</label>
+          <input type="text" id="ng-owner" class="form-control" placeholder="e.g. dba@example.com">
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -108,13 +116,20 @@ function usedAsBadges(r) {
   if (!b)           b  = '<span class="text-muted small">—</span>';
   return b;
 }
+function usedAsBadges2(r) {
+  let b = '';
+  if (r.is_ansible) b += ' <span class="badge bg-primary" style="font-size:.6rem;">A</span>';
+  if (r.is_nagios)  b += ' <span class="badge bg-warning text-dark" style="font-size:.6rem;">N</span>';
+  return b;
+}
 
 function buildParams() {
   const p = {};
   const q = $('#grp-search').val().trim();
   if (q) p.q = q;
-  if ($('#f-ansible').is(':checked')) p.ansible = 1;
-  if ($('#f-nagios').is(':checked'))  p.nagios  = 1;
+  if ($('#f-ansible').is(':checked')) p.ansible     = 1;
+  if ($('#f-nagios').is(':checked'))  p.nagios      = 1;
+  if (!$('#f-empty').is(':checked'))  p.has_members = 1;
   return '?' + new URLSearchParams(p).toString();
 }
 
@@ -122,9 +137,9 @@ function loadTable() {
   $.getJSON('/api/v1/groups' + buildParams(), function(resp) {
     const data = resp.data || [];
     const cols = [
-      { data: 'name',        render: (v,_,r) => `<a href="/groups/${r.id}" class="fw-semibold text-decoration-none">${v}</a>` },
-      { data: null,          render: (_,__,r) => usedAsBadges(r) },
+      { data: 'name',        render: (v,_,r) => `<a href="/groups/${r.id}" class="fw-semibold text-decoration-none">${v}</a>${usedAsBadges2(r)}` },
       { data: 'description', defaultContent: '<span class="text-muted">—</span>' },
+      { data: 'owner',       defaultContent: '<span class="text-muted">—</span>' },
       { data: 'node_count',  defaultContent: '0' },
       { data: null, orderable: false, render: (_,__,r) =>
           isAdmin
@@ -147,7 +162,7 @@ loadTable();
 // Filters
 let searchTimer;
 $('#grp-search').on('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadTable, 300); });
-$('#f-ansible, #f-nagios').on('change', loadTable);
+$('#f-ansible, #f-nagios, #f-empty').on('change', loadTable);
 
 // Row click → group detail
 $('#groupsTable tbody').on('click', 'tr', function(e) {
@@ -178,9 +193,10 @@ $('#btn-create-group').on('click', function() {
     contentType: 'application/json',
     data: JSON.stringify({
       name,
-      is_ansible: $('#ng-ansible').is(':checked') ? 1 : 0,
-      is_nagios:  $('#ng-nagios').is(':checked')  ? 1 : 0,
+      is_ansible:  $('#ng-ansible').is(':checked') ? 1 : 0,
+      is_nagios:   $('#ng-nagios').is(':checked')  ? 1 : 0,
       description: $('#ng-desc').val().trim(),
+      owner:       $('#ng-owner').val().trim() || null,
     }),
     success: (r) => window.location = '/groups/' + r.id,
     error: (xhr) => {

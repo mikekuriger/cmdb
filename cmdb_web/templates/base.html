@@ -115,6 +115,8 @@
     <i class="bi bi-tags"></i> Tags <span class="sb-count" id="cnt-tags">…</span></a>
   <a href="{{ url_for('web.groups') }}"       class="sb-item {% if section=='groups' %}active{% endif %}">
     <i class="bi bi-collection"></i> Groups <span class="sb-count" id="cnt-groups">…</span></a>
+  <a href="{{ url_for('web.statuses') }}"     class="sb-item {% if section=='statuses' %}active{% endif %}">
+    <i class="bi bi-circle-half"></i> Statuses <span class="sb-count" id="cnt-statuses">…</span></a>
 
   <div class="sb-section">History</div>
   <a href="{{ url_for('web.changes') }}"      class="sb-item {% if section=='changes' %}active{% endif %}">

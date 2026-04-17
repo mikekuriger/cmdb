@@ -60,7 +60,8 @@ def node_detail(node_id):
         '       n.description, n.deployment, n.cmdb_uuid, n.first_seen, n.last_seen, n.active, n.is_template, '
         '       o.full_name AS guest_os, o.category AS os_category, '
         '       e.name AS environment, t.name AS tier, ow.name AS owner, '
-        '       dc.path AS datacenter, vc.url AS vcenter_url, vc.label AS vcenter_label '
+        '       dc.path AS datacenter, vc.url AS vcenter_url, vc.label AS vcenter_label, '
+        '       s.name AS status '
         'FROM nodes n '
         'LEFT JOIN operating_systems o ON o.id = n.os_id '
         'LEFT JOIN environments e ON e.id = n.environment_id '
@@ -68,6 +69,7 @@ def node_detail(node_id):
         'LEFT JOIN owners ow ON ow.id = n.owner_id '
         'LEFT JOIN datacenters dc ON dc.id = n.datacenter_id '
         'LEFT JOIN vcenters vc ON vc.id = dc.vcenter_id '
+        'LEFT JOIN statuses s ON s.id = n.status_id '
         'WHERE n.id = %s',
         (node_id,), one=True
     )
@@ -75,13 +77,14 @@ def node_detail(node_id):
         flash('Node not found.', 'warning')
         return redirect(url_for('web.nodes'))
     ips       = query('SELECT ip, is_primary, source FROM ip_addresses WHERE node_id=%s ORDER BY is_primary DESC', (node_id,))
-    groups    = query('SELECT g.id, g.name, g.is_ansible, g.is_nagios FROM groups_ g JOIN node_groups ng ON ng.group_id=g.id WHERE ng.node_id=%s ORDER BY g.name', (node_id,))
+    statuses  = query('SELECT id, name FROM statuses ORDER BY name')
+    groups    = query('SELECT g.id, g.name, g.is_ansible, g.is_nagios FROM groups_ g JOIN group_members ng ON ng.group_id=g.id WHERE ng.node_id=%s ORDER BY g.name', (node_id,))
     all_groups= query('SELECT id, name, is_ansible, is_nagios FROM groups_ ORDER BY name')
     attrs     = query('SELECT name, value FROM node_attributes WHERE node_id=%s ORDER BY name', (node_id,))
     tags      = query('SELECT tg.name FROM tags tg JOIN node_tags nt ON nt.tag_id=tg.id WHERE nt.node_id=%s ORDER BY tg.name', (node_id,))
     return render_template('node_detail.html', node=node, ips=ips,
                            groups=groups, all_groups=all_groups,
-                           attrs=attrs, tags=tags, section='nodes')
+                           attrs=attrs, tags=tags, statuses=statuses, section='nodes')
 
 
 @web_bp.route('/ips')
@@ -250,17 +253,42 @@ def groups():
 @web_bp.route('/groups/<int:gid>')
 @login_required
 def group_detail(gid):
-    group = query('SELECT * FROM groups_ WHERE id=%s', (gid,), one=True)
+    group = query('SELECT id, name, description, owner, is_ansible, is_nagios, created_at, updated_at FROM groups_ WHERE id=%s', (gid,), one=True)
     if not group:
         flash('Group not found.', 'warning')
         return redirect(url_for('web.groups'))
     member_count = query(
-        'SELECT COUNT(*) AS c FROM node_groups WHERE group_id=%s', (gid,), one=True
+        'SELECT COUNT(*) AS c FROM group_members WHERE group_id=%s', (gid,), one=True
     )['c']
     all_groups = query('SELECT id, name, is_ansible, is_nagios FROM groups_ ORDER BY name')
     return render_template('group_detail.html', group=group,
                            member_count=member_count,
                            all_groups=all_groups, section='groups')
+
+
+
+@web_bp.route('/statuses')
+@login_required
+def statuses():
+    return _obj_list('statuses', 'Statuses', '/api/v1/statuses', [
+        {'title': 'Name',       'data': 'name'},
+        {'title': 'Node Count', 'data': 'node_count'},
+    ], '/statuses')
+
+
+@web_bp.route('/statuses/<int:oid>')
+@login_required
+def status_detail(oid):
+    obj = query('SELECT id, name FROM statuses WHERE id=%s', (oid,), one=True)
+    if not obj:
+        flash('Not found.', 'warning'); return redirect(url_for('web.statuses'))
+    return render_template('object_detail.html', section='statuses',
+        obj=obj, obj_type='statuses',
+        back_url=url_for('web.statuses'), back_label='Statuses',
+        page_title=obj['name'],
+        edit_fields=[{'field': 'name', 'label': 'Name', 'type': 'text'}],
+        node_filter='status_id', node_filter_val=oid,
+    )
 
 
 @web_bp.route('/changes')

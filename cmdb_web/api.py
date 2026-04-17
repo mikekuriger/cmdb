@@ -25,7 +25,9 @@ SELECT
     dc.path      AS datacenter,
     vc.url       AS vcenter_url,
     vc.label     AS vcenter_label,
-    GROUP_CONCAT(DISTINCT tg.name ORDER BY tg.name SEPARATOR '|') AS tags
+    GROUP_CONCAT(DISTINCT tg.name ORDER BY tg.name SEPARATOR '|') AS tags,
+    s.name       AS status,
+    GROUP_CONCAT(DISTINCT gr.name ORDER BY gr.name SEPARATOR '|') AS node_groups
 """
 
 _NODE_FROM = """
@@ -38,12 +40,15 @@ LEFT JOIN datacenters      dc  ON dc.id = n.datacenter_id
 LEFT JOIN vcenters         vc  ON vc.id = dc.vcenter_id
 LEFT JOIN node_tags        nt  ON nt.node_id = n.id
 LEFT JOIN tags             tg  ON tg.id      = nt.tag_id
+LEFT JOIN statuses          s  ON s.id  = n.status_id
+LEFT JOIN group_members    gm  ON gm.node_id = n.id
+LEFT JOIN groups_          gr  ON gr.id      = gm.group_id
 """
 
 # Maps DataTables column index → ORDER BY expression
 _DT_SORT_COLS = [
     'n.name', 'n.hostname', 'n.power_state', 'o.full_name',
-    'e.name', 't.name', 'ow.name', 'n.name', 'dc.path', 'n.last_seen',
+    'e.name', 't.name', 'ow.name', 's.name', 'n.name', 'n.name', 'dc.path', 'n.last_seen',
 ]
 
 # Allowed explicit sort keys for REST API (?sort=name)
@@ -98,6 +103,29 @@ def _build_where(params):
             conds.append(f'{col} = %s')
             vals.append(v)
 
+    # Freetext node fields — partial match for CLI
+    for param, col in [
+        ('deployment', 'n.deployment'),
+        ('purpose',    'n.purpose'),
+        ('landscape',  'n.landscape'),
+        ('app_name',   'n.app_name'),
+        ('cmdb_uuid',  'n.cmdb_uuid'),
+    ]:
+        v = params.get(param)
+        if v:
+            conds.append(f'{col} LIKE %s')
+            vals.append(f'%{v}%')
+
+    # Status filter — partial for CLI, exact id for web UI
+    v = params.get('status')
+    if v:
+        conds.append('s.name LIKE %s')
+        vals.append(f'%{v}%')
+    v = params.get('status_id')
+    if v:
+        conds.append('n.status_id = %s')
+        vals.append(int(v))
+
     # ID-based filters (used by object detail pages)
     for param, col in [
         ('os_id',    'n.os_id'),
@@ -133,7 +161,7 @@ def _build_where(params):
     group = params.get('group')
     if group:
         conds.append(
-            'n.id IN (SELECT ng.node_id FROM node_groups ng '
+            'n.id IN (SELECT ng.node_id FROM group_members ng '
             'JOIN groups_ g ON g.id = ng.group_id WHERE g.name = %s)'
         )
         vals.append(group)
@@ -213,7 +241,7 @@ def node_detail(node_id):
     ips    = query('SELECT ip, is_primary, source FROM ip_addresses WHERE node_id=%s', (node_id,))
     groups = query(
         'SELECT g.name, g.is_ansible, g.is_nagios FROM groups_ g '
-        'JOIN node_groups ng ON ng.group_id = g.id WHERE ng.node_id = %s', (node_id,)
+        'JOIN group_members ng ON ng.group_id = g.id WHERE ng.node_id = %s', (node_id,)
     )
     attrs  = query('SELECT name, value FROM node_attributes WHERE node_id=%s ORDER BY name', (node_id,))
     r = _serialize_row(row)
@@ -231,6 +259,7 @@ def update_node(node_id):
     allowed = {
         'name', 'hostname', 'purpose', 'landscape', 'app_name', 'description',
         'deployment', 'cmdb_uuid', 'owner_id', 'environment_id', 'tier_id',
+        'status_id',
     }
     updates = {k: v for k, v in data.items() if k in allowed}
     if not updates:
@@ -267,7 +296,7 @@ def delete_node(node_id):
         return jsonify(error='Not found'), 404
     execute('DELETE FROM node_history    WHERE node_id=%s', (node_id,))
     execute('DELETE FROM ip_addresses    WHERE node_id=%s', (node_id,))
-    execute('DELETE FROM node_groups     WHERE node_id=%s', (node_id,))
+    execute('DELETE FROM group_members     WHERE node_id=%s', (node_id,))
     execute('DELETE FROM node_tags       WHERE node_id=%s', (node_id,))
     execute('DELETE FROM node_attributes WHERE node_id=%s', (node_id,))
     execute('DELETE FROM nodes WHERE id=%s', (node_id,))
@@ -349,6 +378,32 @@ def _object_update(table, id_col, allowed_fields, oid):
     execute(f'UPDATE `{table}` SET {set_clause} WHERE {id_col}=%s',
             list(updates.values()) + [oid])
     return jsonify(ok=True)
+
+
+# ── Statuses ──────────────────────────────────────────────────────────────────
+
+@api_bp.route('/statuses')
+@api_auth_required
+def statuses():
+    rows = query(
+        'SELECT s.id, s.name, COUNT(n.id) AS node_count '
+        'FROM statuses s LEFT JOIN nodes n ON n.status_id=s.id AND n.active=1 '
+        'GROUP BY s.id ORDER BY s.name'
+    )
+    return jsonify(data=list(rows))
+
+
+@api_bp.route('/statuses/<int:oid>')
+@api_auth_required
+def status_detail(oid):
+    return _object_get('statuses', 'id', ['id', 'name'], oid)
+
+
+@api_bp.route('/statuses/<int:oid>', methods=['PUT', 'PATCH'])
+@api_auth_required
+@admin_required
+def status_update(oid):
+    return _object_update('statuses', 'id', {'name'}, oid)
 
 
 # ── OS ────────────────────────────────────────────────────────────────────────
@@ -494,11 +549,12 @@ def groups():
     if p.get('q'):
         conds.append('g.name LIKE %s'); vals.append(f'%{p["q"]}%')
     where = ' AND '.join(conds)
+    having = 'HAVING COUNT(ng.node_id) > 0' if p.get('has_members') in ('1','true') else ''
     rows = query(
-        f'SELECT g.id, g.name, g.is_ansible, g.is_nagios, g.description, '
-        f'COUNT(ng.node_id) AS node_count '
-        f'FROM groups_ g LEFT JOIN node_groups ng ON ng.group_id=g.id '
-        f'WHERE {where} GROUP BY g.id ORDER BY g.name',
+        f'SELECT g.id, g.name, g.description, g.owner, g.is_ansible, g.is_nagios, '
+        f'g.created_at, g.updated_at, COUNT(ng.node_id) AS node_count '
+        f'FROM groups_ g LEFT JOIN group_members ng ON ng.group_id=g.id '
+        f'WHERE {where} GROUP BY g.id {having} ORDER BY g.name',
         vals
     )
     return jsonify(data=list(rows))
@@ -514,11 +570,12 @@ def create_group():
         return jsonify(error='name required'), 400
     is_ansible = 1 if data.get('is_ansible') else 0
     is_nagios  = 1 if data.get('is_nagios')  else 0
-    desc = (data.get('description') or '').strip() or None
+    desc  = (data.get('description') or '').strip() or None
+    owner = (data.get('owner') or '').strip() or None
     try:
         gid = execute(
-            'INSERT INTO groups_ (name, is_ansible, is_nagios, description) VALUES (%s,%s,%s,%s)',
-            (name, is_ansible, is_nagios, desc)
+            'INSERT INTO groups_ (name, description, owner, is_ansible, is_nagios) VALUES (%s,%s,%s,%s,%s)',
+            (name, desc, owner, is_ansible, is_nagios)
         )[0]
         return jsonify(id=gid, name=name, ok=True), 201
     except Exception as e:
@@ -528,7 +585,7 @@ def create_group():
 @api_bp.route('/groups/by-name/<path:name>')
 @api_auth_required
 def group_by_name(name):
-    row = query('SELECT * FROM groups_ WHERE name=%s', (name,), one=True)
+    row = query('SELECT id, name, description, owner, is_ansible, is_nagios, created_at, updated_at FROM groups_ WHERE name=%s', (name,), one=True)
     if not row:
         return jsonify(error='Not found'), 404
     return jsonify(dict(row))
@@ -542,6 +599,7 @@ def update_group(gid):
     updates = {}
     if 'name'        in data: updates['name']        = (data['name'] or '').strip()
     if 'description' in data: updates['description'] = data['description'] or None
+    if 'owner'       in data: updates['owner']       = data['owner'] or None
     if 'is_ansible'  in data: updates['is_ansible']  = 1 if data['is_ansible'] else 0
     if 'is_nagios'   in data: updates['is_nagios']   = 1 if data['is_nagios']  else 0
     if not updates:
@@ -564,7 +622,7 @@ def delete_group(gid):
 def group_nodes(gid):
     rows = query(
         f'{_NODE_SELECT} {_NODE_FROM} '
-        'JOIN node_groups _ng ON _ng.node_id=n.id '
+        'JOIN group_members _ng ON _ng.node_id=n.id '
         'WHERE _ng.group_id=%s GROUP BY n.id ORDER BY n.name',
         (gid,)
     )
@@ -588,7 +646,7 @@ def add_nodes_to_group(gid):
 
     if data.get('ids'):
         for nid in data['ids']:
-            execute('INSERT IGNORE INTO node_groups (node_id, group_id) VALUES (%s,%s)',
+            execute('INSERT IGNORE INTO group_members (node_id, group_id) VALUES (%s,%s)',
                     (int(nid), gid))
             added += 1
 
@@ -603,7 +661,7 @@ def add_nodes_to_group(gid):
                 not_found.append(raw)
             for node in nodes:
                 matched += 1
-                execute('INSERT IGNORE INTO node_groups (node_id, group_id) VALUES (%s,%s)',
+                execute('INSERT IGNORE INTO group_members (node_id, group_id) VALUES (%s,%s)',
                         (node['id'], gid))
                 added += 1
 
@@ -624,7 +682,7 @@ def remove_nodes_from_group(gid):
     if data.get('ids'):
         for nid in data['ids']:
             _, cnt = execute(
-                'DELETE FROM node_groups WHERE group_id=%s AND node_id=%s', (gid, int(nid))
+                'DELETE FROM group_members WHERE group_id=%s AND node_id=%s', (gid, int(nid))
             )
             removed += cnt
 
@@ -634,7 +692,7 @@ def remove_nodes_from_group(gid):
             nodes = query('SELECT id FROM nodes WHERE name LIKE %s', (sql_pat,))
             for node in nodes:
                 _, cnt = execute(
-                    'DELETE FROM node_groups WHERE group_id=%s AND node_id=%s',
+                    'DELETE FROM group_members WHERE group_id=%s AND node_id=%s',
                     (gid, node['id'])
                 )
                 removed += cnt
@@ -646,7 +704,7 @@ def remove_nodes_from_group(gid):
 @api_auth_required
 @admin_required
 def remove_node_from_group(gid, node_id):
-    execute('DELETE FROM node_groups WHERE group_id=%s AND node_id=%s', (gid, node_id))
+    execute('DELETE FROM group_members WHERE group_id=%s AND node_id=%s', (gid, node_id))
     return jsonify(ok=True)
 
 
@@ -659,7 +717,7 @@ def node_add_group(node_id):
     gid  = data.get('group_id')
     if not gid:
         return jsonify(error='group_id required'), 400
-    execute('INSERT IGNORE INTO node_groups (node_id, group_id) VALUES (%s,%s)',
+    execute('INSERT IGNORE INTO group_members (node_id, group_id) VALUES (%s,%s)',
             (node_id, int(gid)))
     return jsonify(ok=True)
 
@@ -668,7 +726,7 @@ def node_add_group(node_id):
 @api_auth_required
 @admin_required
 def node_remove_group(node_id, gid):
-    execute('DELETE FROM node_groups WHERE node_id=%s AND group_id=%s', (node_id, gid))
+    execute('DELETE FROM group_members WHERE node_id=%s AND group_id=%s', (node_id, gid))
     return jsonify(ok=True)
 
 
@@ -716,5 +774,6 @@ def counts():
         owners     = query('SELECT COUNT(*) AS c FROM owners',                 one=True)['c'],
         tags       = query('SELECT COUNT(*) AS c FROM tags',                   one=True)['c'],
         groups     = query('SELECT COUNT(*) AS c FROM groups_',                one=True)['c'],
+        statuses   = query('SELECT COUNT(*) AS c FROM statuses',               one=True)['c'],
         scan_runs  = query('SELECT COUNT(*) AS c FROM scan_runs',              one=True)['c'],
     )

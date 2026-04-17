@@ -16,6 +16,18 @@
   #adv-panel { display:none; border-top:1px solid #f0f2f5; padding-top:.75rem; margin-top:.75rem; }
   #adv-panel.show { display:block; }
   .filter-active { border-color:#0d6efd !important; }
+  .status-badge { display:inline-block; padding:.15em .5em; border-radius:3px; font-size:.72rem; font-weight:600; }
+  .status-inservice    { background:#d1e7dd; color:#0a3622; }
+  .status-outofservice { background:#f8d7da; color:#842029; }
+  .status-reserved     { background:#cfe2ff; color:#084298; }
+  .status-retired      { background:#e2e3e5; color:#41464b; }
+  .status-screamtest   { background:#fff3cd; color:#664d03; }
+  .status-setup        { background:#e9ecef; color:#495057; }
+  .status-testing      { background:#d3f9d8; color:#155724; }
+  .status-unknown      { background:#f0f0f0; color:#6c757d; }
+  .grp-pill { display:inline-block; padding:.1em .35em; border-radius:3px;
+              font-size:.68rem; background:#e9ecef; color:#495057; margin:.05rem .05rem 0 0; }
+  #nodesTable thead th.dt-orderable-none { text-align: left; }
 </style>
 {% endblock %}
 
@@ -32,6 +44,13 @@
       <button class="btn btn-outline-secondary btn-sm" id="btn-adv">
         <i class="bi bi-sliders2"></i> Advanced
       </button>
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" id="btn-cols"
+                data-bs-toggle="dropdown" aria-expanded="false" autocomplete="off">
+          <i class="bi bi-layout-three-columns"></i> Columns
+        </button>
+        <ul class="dropdown-menu shadow-sm" id="col-picker" style="min-width:155px;"></ul>
+      </div>
       <div class="btn-group btn-group-sm" id="osFilter" role="group" aria-label="OS filter">
         <button type="button" class="btn btn-outline-secondary active" data-os="">All OS</button>
         <button type="button" class="btn btn-outline-secondary" data-os="linux">
@@ -46,7 +65,7 @@
       </div>
       <div class="form-check form-switch mb-0 ms-1">
         <input class="form-check-input" type="checkbox" id="showInactive">
-        <label class="form-check-label small text-muted" for="showInactive">Include inactive</label>
+        <label class="form-check-label small text-muted" for="showInactive">Show inactive</label>
       </div>
     </div>
 
@@ -88,6 +107,10 @@
           <label class="form-label small mb-1">Group</label>
           <input id="f-group" type="text" class="form-control form-control-sm" placeholder="group name">
         </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Status</label>
+          <select id="f-status" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
         <div class="col-6 col-md-2 d-flex align-items-end gap-2">
           <button id="btn-apply" class="btn btn-primary btn-sm flex-fill">Apply</button>
           <button id="btn-clear" class="btn btn-outline-secondary btn-sm flex-fill">Clear</button>
@@ -110,6 +133,8 @@
           <th>Environment</th>
           <th>Tier</th>
           <th>Owner</th>
+          <th>Status</th>
+          <th>Groups</th>
           <th>Primary IP</th>
           <th>Datacenter</th>
           <th>Last Seen</th>
@@ -137,6 +162,26 @@ const OS = {
 
 let activeFilters = {};
 
+// Column visibility — stored in localStorage, defaults: IP/Datacenter/LastSeen hidden
+const COL_DEFS = [
+  {idx:0,  label:'Name'},        {idx:1,  label:'Hostname'},
+  {idx:2,  label:'Power'},       {idx:3,  label:'OS'},
+  {idx:4,  label:'Environment'}, {idx:5,  label:'Tier'},
+  {idx:6,  label:'Owner'},       {idx:7,  label:'Status'},
+  {idx:8,  label:'Groups'},      {idx:9,  label:'Primary IP'},
+  {idx:10, label:'Datacenter'},  {idx:11, label:'Last Seen'},
+];
+const COL_DEFAULTS = {0:1,1:1,2:1,3:1,4:1,5:1,6:1,7:1,8:1,9:0,10:0,11:0};
+function getColVis() {
+  try {
+    const s = localStorage.getItem('cmdb_nodes_col_vis');
+    if (s) return Object.assign({...COL_DEFAULTS}, JSON.parse(s));
+  } catch(e) {}
+  return {...COL_DEFAULTS};
+}
+function saveColVis(v) { localStorage.setItem('cmdb_nodes_col_vis', JSON.stringify(v)); }
+const colVis = getColVis();
+
 const table = $('#nodesTable').DataTable({
   processing: true,
   serverSide: true,
@@ -145,7 +190,7 @@ const table = $('#nodesTable').DataTable({
     type: 'GET',
     data: function(d) {
       d.q           = $('#globalSearch').val().trim();
-      d.active      = $('#showInactive').is(':checked') ? 'all' : '1';
+      d.active      = $('#showInactive').is(':checked') ? '0' : '1';
       d.is_template = $('#showTemplates').is(':checked') ? '' : '0';
       d.os_category = $('#osFilter .active').data('os') || '';
       Object.assign(d, activeFilters);
@@ -156,16 +201,20 @@ const table = $('#nodesTable').DataTable({
     },
   },
   columns: [
-    { data: 'name',        render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>${r.is_template ? ' <span style="display:inline-block;padding:.1em .4em;border-radius:3px;font-size:.65rem;font-weight:700;background:#ede9fe;color:#6d28d9;vertical-align:middle;margin-left:.3rem;letter-spacing:.3px;">TMPL</span>' : ''}` },
-    { data: 'hostname',    defaultContent: '<span class="text-muted">—</span>' },
-    { data: 'power_state', render: v => PWR[v] || v },
-    { data: 'guest_os',    render: (v,_,r) => (OS[r.os_category] || '') + ' <span class="text-muted small">' + (v||'') + '</span>' },
-    { data: 'environment', defaultContent: '' },
-    { data: 'tier',        defaultContent: '' },
-    { data: 'owner',       defaultContent: '' },
-    { data: 'primary_ip',  defaultContent: '' },
-    { data: 'datacenter',  defaultContent: '' },
-    { data: 'last_seen',   defaultContent: '' },
+    { data: 'name',        visible: !!colVis[0],  render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>${r.is_template ? ' <span style="display:inline-block;padding:.1em .4em;border-radius:3px;font-size:.65rem;font-weight:700;background:#ede9fe;color:#6d28d9;vertical-align:middle;margin-left:.3rem;letter-spacing:.3px;">TMPL</span>' : ''}` },
+    { data: 'hostname',    visible: !!colVis[1],  defaultContent: '<span class="text-muted">—</span>' },
+    { data: 'power_state', visible: !!colVis[2],  render: v => PWR[v] || v },
+    { data: 'guest_os',    visible: !!colVis[3],  render: (v,_,r) => (OS[r.os_category] || '') + ' <span class="text-muted small">' + (v||'') + '</span>' },
+    { data: 'environment', visible: !!colVis[4],  defaultContent: '' },
+    { data: 'tier',        visible: !!colVis[5],  defaultContent: '' },
+    { data: 'owner',       visible: !!colVis[6],  defaultContent: '' },
+    { data: 'status',      visible: !!colVis[7],  render: v => v ? `<span class="status-badge status-${v}">${v}</span>` : '', defaultContent: '' },
+    { data: 'node_groups', visible: !!colVis[8],  orderable: false,
+      render: v => v ? v.split('|').map(g => `<span class="grp-pill">${g}</span>`).join(' ') : '',
+      defaultContent: '' },
+    { data: 'primary_ip',  visible: !!colVis[9],  defaultContent: '' },
+    { data: 'datacenter',  visible: !!colVis[10], defaultContent: '' },
+    { data: 'last_seen',   visible: !!colVis[11], defaultContent: '' },
   ],
   pageLength: 25,
   lengthMenu: [25, 50, 100, 250],
@@ -182,6 +231,26 @@ const table = $('#nodesTable').DataTable({
     bottomEnd:   { paging: {} },
   },
 });
+
+// Build column-visibility picker
+(function() {
+  const ul = document.getElementById('col-picker');
+  COL_DEFS.forEach(c => {
+    const li = document.createElement('li');
+    const checked = colVis[c.idx] ? 'checked' : '';
+    li.innerHTML = `<label class="dropdown-item d-flex align-items-center gap-2 py-1 small" style="cursor:pointer;">
+      <input type="checkbox" class="form-check-input m-0 flex-shrink-0" data-col="${c.idx}" ${checked}> ${c.label}
+    </label>`;
+    ul.appendChild(li);
+  });
+  ul.addEventListener('click', e => e.stopPropagation()); // keep dropdown open on click
+  ul.addEventListener('change', function(e) {
+    const cb = e.target; if (!cb.dataset.col) return;
+    const idx = parseInt(cb.dataset.col);
+    table.column(idx).visible(cb.checked);
+    const v = getColVis(); v[idx] = cb.checked ? 1 : 0; saveColVis(v);
+  });
+})();
 
 // Click row → node detail
 $('#nodesTable tbody').on('click', 'tr', function(e) {
@@ -230,6 +299,8 @@ $('#btn-apply').on('click', function() {
   });
   const osId = document.getElementById('f-os')?.value;
   if (osId) activeFilters['os_id'] = osId;
+  const statusId = document.getElementById('f-status')?.value;
+  if (statusId) activeFilters['status_id'] = statusId;
   const hasFilters = Object.keys(activeFilters).length > 0;
   $('#btn-adv').toggleClass('filter-active btn-outline-primary', hasFilters)
                .toggleClass('btn-outline-secondary', !hasFilters);
@@ -238,7 +309,7 @@ $('#btn-apply').on('click', function() {
 
 $('#btn-clear').on('click', function() {
   activeFilters = {};
-  ['power','env','tier','owner','vcenter','os'].forEach(k => {
+  ['power','env','tier','owner','vcenter','os','status'].forEach(k => {
     const el = document.getElementById('f-' + k);
     if (el) el.value = '';
   });
@@ -274,6 +345,12 @@ $.getJSON('/api/v1/os', d => {
       r.full_name + ' (' + r.node_count + ')', r.id
     )));
 });
+$.getJSON('/api/v1/statuses', d => {
+  const sel = document.getElementById('f-status');
+  (d.data || []).forEach(r => {
+    sel.appendChild(new Option(r.name + (r.node_count ? ` (${r.node_count})` : ''), r.id));
+  });
+});
 $.getJSON('/api/v1/vcenters', d => {
   const sel = document.getElementById('f-vcenter');
   (d.data || []).forEach(r => {
@@ -285,7 +362,7 @@ $.getJSON('/api/v1/vcenters', d => {
 $('#btn-export').on('click', function() {
   const params = new URLSearchParams({
     limit: 50000, q: $('#globalSearch').val().trim(),
-    active:       $('#showInactive').is(':checked') ? 'all' : '1',
+    active:       $('#showInactive').is(':checked') ? '0' : '1',
     is_template:  $('#showTemplates').is(':checked') ? '' : '0',
     os_category:  $('#osFilter .active').data('os') || '',
     ...activeFilters,

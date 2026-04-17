@@ -48,9 +48,13 @@
                 {% endif %}
               </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Description</div>
               <div>{{ group.description or '—' }}</div>
+            </div>
+            <div class="col-md-3">
+              <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Owner</div>
+              <div>{{ group.owner or '—' }}</div>
             </div>
             <div class="col-md-1">
               <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#6c757d;">Members</div>
@@ -90,6 +94,11 @@
               <label class="form-label small fw-semibold">Description</label>
               <input type="text" id="eg-desc" class="form-control form-control-sm"
                      value="{{ group.description or '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Owner</label>
+              <input type="text" id="eg-owner" class="form-control form-control-sm"
+                     value="{{ group.owner or '' }}">
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
               <button class="btn btn-primary btn-sm" id="btn-save-group">Save</button>
@@ -234,6 +243,7 @@ $('#btn-save-group').on('click', function() {
     data: JSON.stringify({
       name:        $('#eg-name').val(),
       description: $('#eg-desc').val(),
+      owner:       $('#eg-owner').val() || null,
       is_ansible:  $('#eg-ansible').is(':checked') ? 1 : 0,
       is_nagios:   $('#eg-nagios').is(':checked')  ? 1 : 0,
     }),

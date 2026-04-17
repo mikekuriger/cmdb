@@ -130,8 +130,9 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
     guest = v.get("guest") or {}
     hw    = cfg.get("hardware") or {}
 
-    name  = cfg.get("name", "").strip()
-    moref = (v.get("self") or {}).get("value", "").strip()
+    name    = cfg.get("name", "").strip()
+    moref   = (v.get("self") or {}).get("value", "").strip()
+    vm_uuid = cfg.get("uuid", "").strip() or None
     if not name:
         return None
 
@@ -182,8 +183,10 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
     fields = dict(
         name           = name,
         moref          = moref or None,
+        vm_uuid        = vm_uuid,
         hostname       = (guest.get("hostName") or "").strip() or None,
         vcenter_path   = vm_path,
+        vcenter_id     = vc_id,
         datacenter_id  = dc_id,
         os_id          = os_id,
         environment_id = env_id,
@@ -204,25 +207,28 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
         is_template    = is_template,
     )
 
-    # Primary lookup: by stable MoRef within this vCenter (survives renames, works even if dc_id is NULL)
-    # Fallback: by name+datacenter (for existing rows without moref)
+    # Lookup priority (most stable → least stable):
+    # 1. vm_uuid (config.uuid) — VMware hardware UUID; survives renames AND cross-vCenter moves
+    # 2. moref + vcenter_id   — stable within a vCenter, fast, survives renames
+    # 3. name + datacenter    — last resort for nodes imported before uuid/moref were captured
+    _sel = (
+        "SELECT id, name, hostname, power_state, cpus, memory_gb, os_id, "
+        "environment_id, tier_id, owner_id, purpose, landscape, app_name, "
+        "description, deployment, cmdb_uuid, vcenter_path, active, is_template "
+        "FROM nodes "
+    )
     existing = None
-    if moref and vc_id:
-        cur.execute(
-            "SELECT n.id, n.name, n.hostname, n.power_state, n.cpus, n.memory_gb, n.os_id, "
-            "n.environment_id, n.tier_id, n.owner_id, n.purpose, n.landscape, n.app_name, "
-            "n.description, n.deployment, n.cmdb_uuid, n.vcenter_path, n.active, n.is_template "
-            "FROM nodes n JOIN datacenters dc ON dc.id=n.datacenter_id "
-            "WHERE n.moref=%s AND dc.vcenter_id=%s", (moref, vc_id))
+    if vm_uuid:
+        cur.execute(_sel + "WHERE vm_uuid=%s", (vm_uuid,))
+        existing = cur.fetchone()
+
+    if not existing and moref and vc_id:
+        cur.execute(_sel + "WHERE moref=%s AND vcenter_id=%s", (moref, vc_id))
         existing = cur.fetchone()
 
     if not existing and dc_id:
-        cur.execute(
-            "SELECT id, name, hostname, power_state, cpus, memory_gb, os_id, "
-            "environment_id, tier_id, owner_id, purpose, landscape, app_name, "
-            "description, deployment, cmdb_uuid, vcenter_path, active, is_template "
-            "FROM nodes WHERE name=%s AND datacenter_id=%s AND (moref IS NULL OR moref='')",
-            (name, dc_id))
+        cur.execute(_sel + "WHERE name=%s AND datacenter_id=%s AND (moref IS NULL OR moref='')",
+                    (name, dc_id))
         existing = cur.fetchone()
 
     if existing:
@@ -254,20 +260,22 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
                         list(fields.values()))
             node_id = cur.lastrowid
         except Exception as _ie:
-            # UNIQUE constraint — find by moref and update instead
-            if moref and vc_id:
-                cur.execute(
-                    "SELECT n.id FROM nodes n "
-                    "JOIN datacenters dc ON dc.id=n.datacenter_id "
-                    "WHERE n.moref=%s AND dc.vcenter_id=%s", (moref, vc_id))
+            # UNIQUE constraint on vm_uuid or moref — find and update instead
+            row = None
+            if vm_uuid:
+                cur.execute("SELECT id FROM nodes WHERE vm_uuid=%s", (vm_uuid,))
                 row = cur.fetchone()
-                if row:
-                    node_id = row['id']
-                    fields.pop('first_seen', None)
-                    set_clause = ', '.join([f'`{k}`=%s' for k in fields])
-                    cur.execute(f'UPDATE nodes SET {set_clause} WHERE id=%s',
-                                list(fields.values()) + [node_id])
-                    return node_id
+            if not row and moref and vc_id:
+                cur.execute("SELECT id FROM nodes WHERE moref=%s AND vcenter_id=%s",
+                            (moref, vc_id))
+                row = cur.fetchone()
+            if row:
+                node_id = row['id']
+                fields.pop('first_seen', None)
+                set_clause = ', '.join([f'`{k}`=%s' for k in fields])
+                cur.execute(f'UPDATE nodes SET {set_clause} WHERE id=%s',
+                            list(fields.values()) + [node_id])
+                return node_id
             return None
         cur.execute(
             "INSERT INTO node_history (node_id, field, old_value, new_value, source) "
@@ -291,6 +299,11 @@ def sync_vcenter(env_file, conn, scan_id, workers=20, dry_run=False):
     cur         = conn.cursor()
 
     print(f"\n[*] Scanning {vcenter_url}", flush=True)
+
+    # Resolve (or create) the vCenter row so we have vc_id for deactivation later
+    cur.execute("SELECT id FROM vcenters WHERE url=%s", (vcenter_url,))
+    vc_row = cur.fetchone()
+    vc_id  = vc_row["id"] if vc_row else None
 
     datacenter = get_datacenter(env)
     if not datacenter:
@@ -355,17 +368,15 @@ def sync_vcenter(env_file, conn, scan_id, workers=20, dry_run=False):
 
     conn.commit()
 
-    # Mark VMs in this vCenter's datacenter that weren't seen as inactive
+    # Mark VMs in this vCenter that weren't seen as inactive.
+    # Uses vcenter_id directly — no JOIN, so nodes without datacenter_id are also deactivated.
     deactivated = 0
-    if seen_node_ids:
+    if seen_node_ids and vc_id:
         placeholders = ",".join(["%s"] * len(seen_node_ids))
         cur.execute(
-            f"UPDATE nodes n "
-            f"JOIN datacenters dc ON dc.id=n.datacenter_id "
-            f"JOIN vcenters vc ON vc.id=dc.vcenter_id "
-            f"SET n.active=0 "
-            f"WHERE vc.url=%s AND n.id NOT IN ({placeholders}) AND n.active=1",
-            [vcenter_url] + seen_node_ids
+            f"UPDATE nodes SET active=0 "
+            f"WHERE vcenter_id=%s AND id NOT IN ({placeholders}) AND active=1",
+            [vc_id] + seen_node_ids
         )
         deactivated = cur.rowcount
         conn.commit()

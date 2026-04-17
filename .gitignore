@@ -11,3 +11,11 @@
 .zprofile
 .zshrc
 cmdb_sync.log
+.lesshst
+.mysql_history
+cmdb_import_groups.py
+help
+out
+vcenter_inventory/cmdb_backfill_uuids.py
+vcenter_inventory/logs/cmdb_sync.log
+cmdb_web/__pycache__/*

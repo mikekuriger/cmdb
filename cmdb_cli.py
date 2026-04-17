@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 cmdb — Infrastructure CMDB command-line tool.
+v 1.0
 
 Setup:
   export CMDB_URL=https://na1lnptcmdb-01.corp.pvt
@@ -56,6 +57,8 @@ _GET_FIELD_API = {
     'group':       'group',       'node_group':   'group',  'node_groups': 'group',
     'datacenter':  'datacenter',
     'vcenter':     'vcenter',
+    'status':      'status',
+    'deployment':  'deployment',
 }
 
 # --set field → API field (prefix __ = needs lookup by name first)
@@ -71,6 +74,7 @@ _SET_FIELD_API = {
     'owner':       '__owner',
     'environment': '__environment',  'env': '__environment',
     'tier':        '__tier',
+    'status':      '__status',
 }
 
 # --fields alias → node dict key (or special sentinel starting with _)
@@ -98,6 +102,7 @@ _FIELD_DISPLAY = {
     'cmdb_uuid':    'cmdb_uuid',
     'first_seen':   'first_seen',
     'last_seen':    'last_seen',
+    'status':       'status',
     'id':           'id',
     'vcenter':      'vcenter_label',
 }
@@ -366,6 +371,10 @@ def do_set_nodes(rows, set_pairs, yes, dry_run, fmt):
             tid, tname = _resolve_id('tiers', value)
             updates['tier_id'] = tid
             if not dry_run: print(f'  resolved tier: {value!r} → {tname} (id={tid})')
+        elif api_field == '__status':
+            sid, sname = _resolve_id('statuses', value)
+            updates['status_id'] = sid
+            if not dry_run: print(f'  resolved status: {value!r} → {sname} (id={sid})')
         else:
             updates[api_field] = value
 
