@@ -51,7 +51,7 @@ _GET_FIELD_API = {
     'name':        'q',
     'hostname':    'q',
     'power':       'power',       'power_state':  'power',
-    'os':          'os_category', 'os_category':  'os_category',
+    'os':          'guest_os',    'os_category':  'os_category',
     'guest_os':    'guest_os',    'full_os':       'guest_os',
     'env':         'env',         'environment':  'env',
     'tier':        'tier',
