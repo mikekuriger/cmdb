@@ -52,6 +52,7 @@ _GET_FIELD_API = {
     'hostname':    'q',
     'power':       'power',       'power_state':  'power',
     'os':          'os_category', 'os_category':  'os_category',
+    'guest_os':    'guest_os',    'full_os':       'guest_os',
     'env':         'env',         'environment':  'env',
     'tier':        'tier',
     'owner':       'owner',
@@ -624,6 +625,7 @@ QUERY
   --all                     Include inactive nodes
 
   Queryable fields: name, hostname, power/power_state, os/os_category,
+    guest_os/full_os (e.g. "centos 6", "oracle linux 8", "ubuntu"),
     env/environment, tier, owner, tag, group/node_groups, datacenter, vcenter
 
 DISPLAY

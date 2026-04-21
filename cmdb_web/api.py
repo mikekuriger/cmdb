@@ -78,6 +78,12 @@ def _build_where(params):
             conds.append(f'{col} = %s')
             vals.append(v)
 
+    # Partial match on full OS name
+    v = params.get('guest_os')
+    if v:
+        conds.append('o.full_name LIKE %s')
+        vals.append(f'%{v}%')
+
     # Partial match — CLI --get (substring search on typed values)
     for param, col in [
         ('env',       'e.name'),
