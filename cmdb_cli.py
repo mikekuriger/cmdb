@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 cmdb — Infrastructure CMDB command-line tool.
-v 1.0
+v 1.1
 
 Setup:
   export CMDB_URL=https://na1lnptcmdb-01.corp.pvt
@@ -34,6 +34,8 @@ Examples:
 """
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
+
+VERSION = '1.1'
 from datetime import datetime
 
 BASE_URL = os.environ.get('CMDB_URL', 'http://localhost:5000')
@@ -228,7 +230,31 @@ def _strip_wildcards(v):
 # ---------------------------------------------------------------------------
 
 def fetch_nodes(get_pairs, exact_pairs, all_nodes=False, limit=5000):
-    params = {'limit': limit, 'active': 'all' if all_nodes else '1'}
+    # Expand comma-separated name/hostname values into per-value fetches
+    multi, base_get, base_exact = [], [], []
+    for field, value in (get_pairs or []):
+        if field in ("name", "hostname") and "," in value:
+            multi.extend(("get", field, v.strip()) for v in value.split(",") if v.strip())
+        else:
+            base_get.append((field, value))
+    for field, value in (exact_pairs or []):
+        if field in ("name", "hostname") and "," in value:
+            multi.extend(("exact", field, v.strip()) for v in value.split(",") if v.strip())
+        else:
+            base_exact.append((field, value))
+    if multi:
+        seen, rows = set(), []
+        for kind, field, v in multi:
+            for r in fetch_nodes(
+                base_get + [(field, v)] if kind == "get" else base_get,
+                base_exact + [(field, v)] if kind == "exact" else base_exact,
+                all_nodes, limit,
+            ):
+                if r.get("id") not in seen:
+                    seen.add(r["id"]); rows.append(r)
+        return rows
+
+    params = {"limit": limit, "active": "all" if all_nodes else "1"}
     # exact-match fields that need post-filtering (API only does substring on q=)
     post_exact = {}
 
@@ -588,7 +614,7 @@ def do_lookup(ltype, fmt):
 def build_parser():
     p = argparse.ArgumentParser(
         prog='cmdb',
-        description='Infrastructure CMDB command-line tool.',
+        description=f'Infrastructure CMDB command-line tool  v{VERSION}',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 QUERY
@@ -702,6 +728,8 @@ EXAMPLES
                    help='Show what would change without making changes')
     p.add_argument('--limit',    type=int, default=5000,
                    help='Max nodes to return (default: 5000)')
+    p.add_argument('--version', '-v', action='version',
+                   version=f'cmdb {VERSION}')
 
     return p
 
@@ -714,6 +742,9 @@ def main():
     global BASE_URL, API_KEY
 
     p = build_parser()
+    if len(sys.argv) == 1:
+        p.print_help()
+        sys.exit(0)
     args = p.parse_args()
 
     if args.url:      BASE_URL = args.url
