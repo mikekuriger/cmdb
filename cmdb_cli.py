@@ -234,12 +234,12 @@ def fetch_nodes(get_pairs, exact_pairs, all_nodes=False, limit=5000):
     # Expand comma-separated name/hostname values into per-value fetches
     multi, base_get, base_exact = [], [], []
     for field, value in (get_pairs or []):
-        if field in ("name", "hostname") and "," in value:
+        if "," in value:
             multi.extend(("get", field, v.strip()) for v in value.split(",") if v.strip())
         else:
             base_get.append((field, value))
     for field, value in (exact_pairs or []):
-        if field in ("name", "hostname") and "," in value:
+        if "," in value:
             multi.extend(("exact", field, v.strip()) for v in value.split(",") if v.strip())
         else:
             base_exact.append((field, value))
