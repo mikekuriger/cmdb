@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 cmdb — Infrastructure CMDB command-line tool.
-v 1.1
+v 1.2
 
 Setup:
   export CMDB_URL=https://na1lnptcmdb-01.corp.pvt
@@ -35,7 +35,7 @@ Examples:
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
 
-VERSION = '1.1'
+VERSION = '1.2'
 from datetime import datetime
 
 BASE_URL = os.environ.get('CMDB_URL', 'http://localhost:5000')
