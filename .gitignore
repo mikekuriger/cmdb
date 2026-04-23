@@ -19,3 +19,7 @@ out
 vcenter_inventory/cmdb_backfill_uuids.py
 vcenter_inventory/logs/cmdb_sync.log
 cmdb_web/__pycache__/*
+__pycache__/                                                                                                                    
+*.pyc                
+*.pyo
+vcenter_inventory/logs/
