@@ -307,6 +307,11 @@ def _enrich_for_display(rows, display_keys):
             r['_tags'] = raw.replace('|', ', ')
 
 
+def _node_label(r):
+    """Return hostname if set, otherwise VM name."""
+    return r.get('hostname') or r.get('name', '(unknown)')
+
+
 def display_nodes(rows, display_keys, fmt, labels=None):
     """
     display_keys : list of row-dict keys to display, or None for name-only
@@ -322,9 +327,9 @@ def display_nodes(rows, display_keys, fmt, labels=None):
         return
 
     if display_keys is None:
-        # Default: one name per line
+        # Default: one hostname per line, fall back to VM name if hostname not set
         for r in rows:
-            print(r.get('name', ''))
+            print(_node_label(r))
         print(f'{len(rows)} node(s)', file=sys.stderr)
         return
 
@@ -339,7 +344,7 @@ def display_nodes(rows, display_keys, fmt, labels=None):
         # nv-style record format: one block per node
         pairs = list(zip(labels, display_keys))
         for r in rows:
-            print(f'{r.get("name", "(unknown)")}:')
+            print(f'{_node_label(r)}:')
             for label, key in pairs:
                 val = r.get(key)
                 print(f'  {label}: {val if val is not None else ""}')
@@ -374,7 +379,7 @@ def do_set_nodes(rows, set_pairs, yes, dry_run, fmt):
         print('No nodes matched.'); return
 
     if not yes and not dry_run:
-        names = ', '.join(r['name'] for r in rows[:5])
+        names = ', '.join(_node_label(r) for r in rows[:5])
         if len(rows) > 5: names += f' … ({len(rows)} total)'
         if not _confirm(f'Update {len(rows)} node(s) ({names})?'):
             print('Aborted.'); return
@@ -407,12 +412,12 @@ def do_set_nodes(rows, set_pairs, yes, dry_run, fmt):
 
     if dry_run:
         for r in rows:
-            print(f'[dry-run] Would update {r["name"]}: {updates}')
+            print(f'[dry-run] Would update {_node_label(r)}: {updates}')
         return
 
     for r in rows:
         api_put(f'nodes/{r["id"]}', updates)
-        print(f'  updated: {r["name"]}')
+        print(f'  updated: {_node_label(r)}')
 
     if fmt == 'json':
         print(json.dumps({'updated': len(rows), 'fields': updates}))
@@ -423,19 +428,19 @@ def do_delete_nodes(rows, yes, dry_run):
         print('No nodes matched.'); return
 
     if not yes and not dry_run:
-        names = ', '.join(r['name'] for r in rows[:5])
+        names = ', '.join(_node_label(r) for r in rows[:5])
         if len(rows) > 5: names += f' … ({len(rows)} total)'
         if not _confirm(f'Permanently delete {len(rows)} node(s) ({names})?'):
             print('Aborted.'); return
 
     if dry_run:
         for r in rows:
-            print(f'[dry-run] Would delete: {r["name"]} (id={r["id"]})')
+            print(f'[dry-run] Would delete: {_node_label(r)} (id={r["id"]})')
         return
 
     for r in rows:
         api_delete(f'nodes/{r["id"]}')
-        print(f'  deleted: {r["name"]} (id={r["id"]})')
+        print(f'  deleted: {_node_label(r)} (id={r["id"]})')
 
 
 def _group_ids_from_names(group_spec):
@@ -460,7 +465,7 @@ def do_add_to_groups(rows, group_spec, yes, dry_run):
     if not groups: return
 
     if not yes and not dry_run:
-        node_names = ', '.join(r['name'] for r in rows[:5])
+        node_names = ', '.join(_node_label(r) for r in rows[:5])
         if len(rows) > 5: node_names += f' … ({len(rows)} total)'
         gnames = ', '.join(n for _, n in groups)
         if not _confirm(f'Add {len(rows)} node(s) to [{gnames}]?'):
@@ -484,7 +489,7 @@ def do_remove_from_groups(rows, group_spec, yes, dry_run):
     if not groups: return
 
     if not yes and not dry_run:
-        node_names = ', '.join(r['name'] for r in rows[:5])
+        node_names = ', '.join(_node_label(r) for r in rows[:5])
         if len(rows) > 5: node_names += f' … ({len(rows)} total)'
         gnames = ', '.join(n for _, n in groups)
         if not _confirm(f'Remove {len(rows)} node(s) from [{gnames}]?'):
