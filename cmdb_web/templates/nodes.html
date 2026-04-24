@@ -269,9 +269,18 @@ $('#globalSearch').on('input', function() {
 $('#showInactive').on('change', () => table.ajax.reload());
 $('#showTemplates').on('change', () => table.ajax.reload());
 
+// Restore saved OS filter on page load
+(function() {
+  const saved = localStorage.getItem('cmdb_nodes_os_filter') || '';
+  $('#osFilter button').each(function() {
+    $(this).toggleClass('active', $(this).data('os') === saved);
+  });
+})();
+
 $('#osFilter button').on('click', function() {
   $('#osFilter button').removeClass('active');
   $(this).addClass('active');
+  localStorage.setItem('cmdb_nodes_os_filter', $(this).data('os') || '');
   table.ajax.reload();
 });
 
