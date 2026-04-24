@@ -72,6 +72,17 @@ def categorize_os(full_name):
     return "other"
 
 
+def normalize_os_name(full_name):
+    """Shorten verbose VMware Tools OS strings to a human-readable form."""
+    if not full_name:
+        return full_name
+    # Flatcar: "Linux 6.12.74-flatcar Flatcar Container Linux by Kinvolk 4459.2.4 ..."
+    m = re.search(r'Flatcar Container Linux\s+(?:by\s+\S+\s+)?(\d+\.\d+\.\d+)', full_name, re.IGNORECASE)
+    if m:
+        return f'Flatcar Container Linux {m.group(1)}'
+    return full_name
+
+
 def build_field_map(env):
     stdout, _ = govc_run(env, "fields.ls")
     field_map = {}
@@ -146,7 +157,7 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
     dc_row = cur.fetchone()
     dc_id  = dc_row["id"] if dc_row else None
 
-    os_full = (guest.get("guestFullName") or cfg.get("guestFullName") or "").strip()
+    os_full = normalize_os_name((guest.get("guestFullName") or cfg.get("guestFullName") or "").strip())
     os_id   = None
     if os_full:
         cur.execute("SELECT id FROM operating_systems WHERE full_name=%s", (os_full,))

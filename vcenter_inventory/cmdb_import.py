@@ -15,7 +15,7 @@ Usage:
       [--db cmdb]
 """
 
-import csv, argparse, sys, os
+import csv, argparse, sys, os, re
 from datetime import datetime
 import pymysql
 import pymysql.cursors
@@ -34,6 +34,16 @@ def categorize_os(full_name):
                               "suse","amazon","fedora","rocky","alma","photon"]):
         return "linux"
     return "other"
+
+def normalize_os_name(full_name):
+    """Shorten verbose VMware Tools OS strings to a human-readable form."""
+    if not full_name:
+        return full_name
+    # Flatcar: "Linux 6.12.74-flatcar Flatcar Container Linux by Kinvolk 4459.2.4 ..."
+    m = re.search(r'Flatcar Container Linux\s+(?:by\s+\S+\s+)?(\d+\.\d+\.\d+)', full_name, re.IGNORECASE)
+    if m:
+        return f'Flatcar Container Linux {m.group(1)}'
+    return full_name
 
 def os_family(full_name):
     if not full_name:
@@ -137,7 +147,7 @@ def main():
             dc_id = cur.lastrowid
 
         # OS
-        os_full = (row.get("guest_os") or "").strip()
+        os_full = normalize_os_name((row.get("guest_os") or "").strip())
         os_id   = None
         if os_full:
             cur.execute("SELECT id FROM operating_systems WHERE full_name=%s", (os_full,))
