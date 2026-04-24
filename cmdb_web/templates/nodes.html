@@ -162,6 +162,14 @@ const OS = {
 
 let activeFilters = {};
 
+// Restore OS filter before DataTable init so the first AJAX call uses the saved value
+(function() {
+  const saved = localStorage.getItem('cmdb_nodes_os_filter') || '';
+  $('#osFilter button').each(function() {
+    $(this).toggleClass('active', $(this).data('os') === saved);
+  });
+})();
+
 // Column visibility — stored in localStorage, defaults: IP/Datacenter/LastSeen hidden
 const COL_DEFS = [
   {idx:0,  label:'Name'},        {idx:1,  label:'Hostname'},
@@ -268,14 +276,6 @@ $('#globalSearch').on('input', function() {
 
 $('#showInactive').on('change', () => table.ajax.reload());
 $('#showTemplates').on('change', () => table.ajax.reload());
-
-// Restore saved OS filter on page load
-(function() {
-  const saved = localStorage.getItem('cmdb_nodes_os_filter') || '';
-  $('#osFilter button').each(function() {
-    $(this).toggleClass('active', $(this).data('os') === saved);
-  });
-})();
 
 $('#osFilter button').on('click', function() {
   $('#osFilter button').removeClass('active');
