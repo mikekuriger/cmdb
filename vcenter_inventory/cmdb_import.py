@@ -177,7 +177,7 @@ def main():
             cur.execute(
                 "SELECT id, name, hostname, power_state, cpus, memory_gb, os_id, "
                 "environment_id, tier_id, owner_id, purpose, landscape, app_name, "
-                "description, deployment, cmdb_uuid, vcenter_path, active, is_template "
+                "description, deployment, cmdb_uuid, vcenter_path, active, is_template, status_id "
                 "FROM nodes WHERE moref=%s AND datacenter_id=%s",
                 (moref, dc_id))
             existing = cur.fetchone()
@@ -185,7 +185,7 @@ def main():
             cur.execute(
                 "SELECT id, name, hostname, power_state, cpus, memory_gb, os_id, "
                 "environment_id, tier_id, owner_id, purpose, landscape, app_name, "
-                "description, deployment, cmdb_uuid, vcenter_path, active, is_template "
+                "description, deployment, cmdb_uuid, vcenter_path, active, is_template, status_id "
                 "FROM nodes WHERE name=%s AND datacenter_id=%s AND (moref IS NULL OR moref='')",
                 (name, dc_id))
             existing = cur.fetchone()
@@ -216,13 +216,19 @@ def main():
             is_template    = 1 if str(row.get("is_template") or "").lower() in ("1","true","yes") else 0,
         )
 
+        # Auto-set screamtest status; otherwise preserve whatever is already stored
+        if 'screamtest' in name.lower():
+            fields['status_id'] = 5
+        else:
+            fields['status_id'] = existing.get('status_id') if existing else None
+
         if existing:
             node_id = existing["id"]
             # Log changes for tracked fields
             tracked = ['name', 'hostname', 'power_state', 'cpus', 'memory_gb', 'os_id',
                        'environment_id', 'tier_id', 'owner_id', 'purpose',
                        'landscape', 'app_name', 'description', 'deployment',
-                       'cmdb_uuid', 'vcenter_path', 'is_template']
+                       'cmdb_uuid', 'vcenter_path', 'is_template', 'status_id']
             if existing.get('active') == 0:
                 tracked.append('active')
             for f in tracked:

@@ -214,7 +214,7 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
     _sel = (
         "SELECT id, name, hostname, power_state, cpus, memory_gb, os_id, "
         "environment_id, tier_id, owner_id, purpose, landscape, app_name, "
-        "description, deployment, cmdb_uuid, vcenter_path, active, is_template "
+        "description, deployment, cmdb_uuid, vcenter_path, active, is_template, status_id "
         "FROM nodes "
     )
     existing = None
@@ -231,12 +231,18 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
                     (name, dc_id))
         existing = cur.fetchone()
 
+    # Auto-set screamtest status; otherwise preserve whatever is already stored
+    if 'screamtest' in name.lower():
+        fields['status_id'] = 5
+    else:
+        fields['status_id'] = existing.get('status_id') if existing else None
+
     if existing:
         node_id = existing["id"]
         tracked = ['name', 'hostname', 'power_state', 'cpus', 'memory_gb', 'os_id',
                    'environment_id', 'tier_id', 'owner_id', 'purpose',
                    'landscape', 'app_name', 'description', 'deployment',
-                   'cmdb_uuid', 'vcenter_path', 'is_template']
+                   'cmdb_uuid', 'vcenter_path', 'is_template', 'status_id']
         if existing.get('active') == 0:
             tracked.append('active')
         for f in tracked:
