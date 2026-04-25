@@ -62,7 +62,7 @@
       <script>(function(){var s=localStorage.getItem('cmdb_nodes_os_filter');if(s){document.querySelectorAll('#osFilter button').forEach(function(b){b.classList.toggle('active',(b.dataset.os||'')==s);});}})();</script>
       <div class="form-check form-switch mb-0 ms-1">
         <input class="form-check-input" type="checkbox" id="showTemplates">
-        <label class="form-check-label small text-muted" for="showTemplates">Include templates</label>
+        <label class="form-check-label small text-muted" for="showTemplates">Show templates</label>
       </div>
       <div class="form-check form-switch mb-0 ms-1">
         <input class="form-check-input" type="checkbox" id="showInactive">
@@ -200,7 +200,7 @@ const table = $('#nodesTable').DataTable({
     data: function(d) {
       d.q           = $('#globalSearch').val().trim();
       d.active      = $('#showInactive').is(':checked') ? '0' : '1';
-      d.is_template = $('#showTemplates').is(':checked') ? '' : '0';
+      d.is_template = $('#showTemplates').is(':checked') ? '1' : '0';
       d.os_category = $('#osFilter .active').data('os') || '';
       Object.assign(d, activeFilters);
       return d;
@@ -373,7 +373,7 @@ $('#btn-export').on('click', function() {
   const params = new URLSearchParams({
     limit: 50000, q: $('#globalSearch').val().trim(),
     active:       $('#showInactive').is(':checked') ? '0' : '1',
-    is_template:  $('#showTemplates').is(':checked') ? '' : '0',
+    is_template:  $('#showTemplates').is(':checked') ? '1' : '0',
     os_category:  $('#osFilter .active').data('os') || '',
     ...activeFilters,
   });

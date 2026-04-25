@@ -242,11 +242,13 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
                     (name, dc_id))
         existing = cur.fetchone()
 
-    # Auto-set screamtest status; otherwise preserve whatever is already stored
+    # Auto-set screamtest status; otherwise preserve existing, or setup (6) for new VMs
     if 'screamtest' in name.lower():
         fields['status_id'] = 5
+    elif existing:
+        fields['status_id'] = existing.get('status_id')
     else:
-        fields['status_id'] = existing.get('status_id') if existing else None
+        fields['status_id'] = 6  # setup
 
     if existing:
         node_id = existing["id"]
@@ -269,6 +271,15 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
         cur.execute(f"UPDATE nodes SET {set_clause} WHERE id=%s",
                     list(fields.values()) + [node_id])
     else:
+        # Replacement detection: same name+datacenter but different vm_uuid
+        replaced_node = None
+        if vm_uuid and dc_id:
+            cur.execute(
+                "SELECT id FROM nodes WHERE name=%s AND datacenter_id=%s "
+                "AND vm_uuid IS NOT NULL AND vm_uuid != %s AND active=1",
+                (name, dc_id, vm_uuid))
+            replaced_node = cur.fetchone()
+
         fields["first_seen"] = now
         cols         = ", ".join([f"`{k}`" for k in fields])
         placeholders = ", ".join(["%s"] * len(fields))
@@ -298,6 +309,20 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
             "INSERT INTO node_history (node_id, field, old_value, new_value, source) "
             "VALUES (%s,'_created',NULL,'1','sync')",
             (node_id,))
+
+        if replaced_node:
+            old_id = replaced_node['id']
+            cur.execute("UPDATE nodes SET active=0, status_id=4 WHERE id=%s", (old_id,))
+            cur.execute("SELECT group_id FROM group_members WHERE node_id=%s", (old_id,))
+            for grp_row in cur.fetchall():
+                cur.execute(
+                    "INSERT IGNORE INTO group_members (node_id, group_id) VALUES (%s,%s)",
+                    (node_id, grp_row['group_id']))
+            cur.execute(
+                "INSERT INTO node_history (node_id, field, old_value, new_value, source) "
+                "VALUES (%s,'_replaced',%s,%s,'sync')",
+                (node_id, str(old_id), str(node_id)))
+            print(f"    [replace] {name}: node {old_id} retired → new node {node_id}, groups copied", flush=True)
 
     ip = (guest.get("ipAddress") or "").strip()
     if ip:
