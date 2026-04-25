@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 cmdb — Infrastructure CMDB command-line tool.
-v 1.3
 
 Setup:
   export CMDB_URL=https://na1lnptcmdb-01.corp.pvt
@@ -35,7 +34,7 @@ Examples:
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
 
-VERSION = '1.3'
+VERSION = '1.4'
 from datetime import datetime
 
 BASE_URL = os.environ.get('CMDB_URL', 'http://localhost:5000')
@@ -330,14 +329,12 @@ def display_nodes(rows, display_keys, fmt, labels=None):
         # Default: one hostname per line, fall back to VM name if hostname not set
         for r in rows:
             print(_node_label(r))
-        print(f'{len(rows)} node(s)', file=sys.stderr)
         return
 
     _enrich_for_display(rows, display_keys)
 
     if fmt == 'csv':
         _fmt_csv(rows, display_keys)
-        print(f'{len(rows)} node(s)', file=sys.stderr)
         return
 
     if labels:
@@ -352,7 +349,6 @@ def display_nodes(rows, display_keys, fmt, labels=None):
     else:
         # Flat table — used for --allfields
         _fmt_table(rows, display_keys)
-    print(f'{len(rows)} node(s)', file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +535,6 @@ def display_groups(rows, fmt):
         _fmt_csv(rows, keys)
     else:
         _fmt_table(rows, keys)
-    print(f'{len(rows)} group(s)', file=sys.stderr)
 
 
 def do_create_groups(group_spec, ansible, nagios, desc, dry_run):
