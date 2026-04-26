@@ -34,7 +34,7 @@ Examples:
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
 
-VERSION = '1.4'
+VERSION = '1.5'
 from datetime import datetime
 
 BASE_URL = os.environ.get('CMDB_URL', 'http://localhost:5000')
@@ -144,8 +144,15 @@ def _ssl_ctx():
     return None
 
 
+def _require_token():
+    if not API_KEY:
+        sys.exit('Error: CMDB_API_KEY required for write operations. Use --key or export CMDB_API_KEY=<token>')
+
+
 def _http(url, method='GET', body=None):
-    headers = {'Authorization': f'Bearer {API_KEY}', 'Accept': 'application/json'}
+    headers = {'Accept': 'application/json'}
+    if API_KEY:
+        headers['Authorization'] = f'Bearer {API_KEY}'
     if body is not None:
         headers['Content-Type'] = 'application/json'
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
@@ -371,6 +378,7 @@ def _resolve_id(endpoint, value, name_field='name'):
 
 
 def do_set_nodes(rows, set_pairs, yes, dry_run, fmt):
+    _require_token()
     if not rows:
         print('No nodes matched.'); return
 
@@ -420,6 +428,7 @@ def do_set_nodes(rows, set_pairs, yes, dry_run, fmt):
 
 
 def do_delete_nodes(rows, yes, dry_run):
+    _require_token()
     if not rows:
         print('No nodes matched.'); return
 
@@ -454,6 +463,7 @@ def _group_ids_from_names(group_spec):
 
 
 def do_add_to_groups(rows, group_spec, yes, dry_run):
+    _require_token()
     if not rows:
         print('No nodes matched.'); return
 
@@ -478,6 +488,7 @@ def do_add_to_groups(rows, group_spec, yes, dry_run):
 
 
 def do_remove_from_groups(rows, group_spec, yes, dry_run):
+    _require_token()
     if not rows:
         print('No nodes matched.'); return
 
@@ -538,6 +549,7 @@ def display_groups(rows, fmt):
 
 
 def do_create_groups(group_spec, ansible, nagios, desc, dry_run):
+    _require_token()
     names = [n.strip() for n in group_spec.split(',') if n.strip()]
     for name in names:
         if dry_run:
@@ -552,6 +564,7 @@ def do_create_groups(group_spec, ansible, nagios, desc, dry_run):
 
 
 def do_delete_groups(rows, yes, dry_run):
+    _require_token()
     if not rows:
         print('No groups matched.'); return
 
@@ -752,9 +765,6 @@ def main():
     if args.url:      BASE_URL = args.url
     if args.key:      API_KEY  = args.key
     if args.insecure: globals().__setitem__('INSECURE', True)
-
-    if not API_KEY:
-        sys.exit('Error: CMDB_API_KEY not set. Use --key or export CMDB_API_KEY=<token>')
 
     fmt = args.output
 

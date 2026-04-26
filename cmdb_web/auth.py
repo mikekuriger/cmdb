@@ -109,6 +109,22 @@ def api_auth_required(f):
     return decorated
 
 
+def api_read_allowed(f):
+    """GET requests are public; token is accepted if provided but not required."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if current_user.is_authenticated:
+            return f(*args, **kwargs)
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            user = get_user_by_api_key(auth[7:].strip())
+            if user:
+                from flask_login import login_user
+                login_user(user)
+        return f(*args, **kwargs)
+    return decorated
+
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):

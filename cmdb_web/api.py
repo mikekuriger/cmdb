@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
-from auth import api_auth_required, admin_required
+from auth import api_auth_required, api_read_allowed, admin_required
 from db import query, execute
 from datetime import datetime
 
@@ -197,7 +197,7 @@ def _serialize_row(r):
 # ---------------------------------------------------------------------------
 
 @api_bp.route('/nodes')
-@api_auth_required
+@api_read_allowed
 def nodes():
     p = request.args
 
@@ -236,7 +236,7 @@ def nodes():
 
 
 @api_bp.route('/nodes/<int:node_id>')
-@api_auth_required
+@api_read_allowed
 def node_detail(node_id):
     row = query(
         f'{_NODE_SELECT} {_NODE_FROM} WHERE n.id = %s GROUP BY n.id',
@@ -309,7 +309,7 @@ def delete_node(node_id):
     return jsonify(ok=True)
 
 @api_bp.route('/nodes/<int:node_id>/history')
-@api_auth_required
+@api_read_allowed
 def node_history(node_id):
     rows = query(
         'SELECT h.id, h.field, h.old_value, h.new_value, h.source, h.changed_by, h.changed_at '
@@ -327,7 +327,7 @@ def node_history(node_id):
 # ---------------------------------------------------------------------------
 
 @api_bp.route('/changes')
-@api_auth_required
+@api_read_allowed
 def recent_changes():
     limit = min(int(request.args.get('limit', 500)), 2000)
     rows = query(
@@ -348,7 +348,7 @@ def recent_changes():
 
 
 @api_bp.route('/ips')
-@api_auth_required
+@api_read_allowed
 def ips():
     p = request.args
     conds, vals = ['1=1'], []
@@ -389,7 +389,7 @@ def _object_update(table, id_col, allowed_fields, oid):
 # ── Statuses ──────────────────────────────────────────────────────────────────
 
 @api_bp.route('/statuses')
-@api_auth_required
+@api_read_allowed
 def statuses():
     rows = query(
         'SELECT s.id, s.name, COUNT(n.id) AS node_count '
@@ -400,7 +400,7 @@ def statuses():
 
 
 @api_bp.route('/statuses/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def status_detail(oid):
     return _object_get('statuses', 'id', ['id', 'name'], oid)
 
@@ -415,7 +415,7 @@ def status_update(oid):
 # ── OS ────────────────────────────────────────────────────────────────────────
 
 @api_bp.route('/os/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def os_detail(oid):
     return _object_get('operating_systems', 'id',
                        ['id','full_name','category','family'], oid)
@@ -431,7 +431,7 @@ def os_update(oid):
 # ── Environments ──────────────────────────────────────────────────────────────
 
 @api_bp.route('/environments/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def environment_detail(oid):
     return _object_get('environments', 'id', ['id','name'], oid)
 
@@ -446,7 +446,7 @@ def environment_update(oid):
 # ── Tiers ─────────────────────────────────────────────────────────────────────
 
 @api_bp.route('/tiers/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def tier_detail(oid):
     return _object_get('tiers', 'id', ['id','name'], oid)
 
@@ -461,7 +461,7 @@ def tier_update(oid):
 # ── Owners ────────────────────────────────────────────────────────────────────
 
 @api_bp.route('/owners/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def owner_detail(oid):
     return _object_get('owners', 'id', ['id','name','email'], oid)
 
@@ -476,7 +476,7 @@ def owner_update(oid):
 # ── Tags ──────────────────────────────────────────────────────────────────────
 
 @api_bp.route('/tags/<int:oid>')
-@api_auth_required
+@api_read_allowed
 def tag_detail(oid):
     return _object_get('tags', 'id', ['id','name','category'], oid)
 
@@ -491,7 +491,7 @@ def tag_update(oid):
 # ── Operating Systems list ────────────────────────────────────────────────────
 
 @api_bp.route('/os')
-@api_auth_required
+@api_read_allowed
 def operating_systems():
     rows = query(
         'SELECT o.id, o.full_name, o.category, o.family, COUNT(n.id) AS node_count '
@@ -502,7 +502,7 @@ def operating_systems():
 
 
 @api_bp.route('/environments')
-@api_auth_required
+@api_read_allowed
 def environments():
     rows = query(
         'SELECT e.id, e.name, COUNT(n.id) AS node_count '
@@ -513,7 +513,7 @@ def environments():
 
 
 @api_bp.route('/tiers')
-@api_auth_required
+@api_read_allowed
 def tiers():
     rows = query(
         'SELECT t.id, t.name, COUNT(n.id) AS node_count '
@@ -524,7 +524,7 @@ def tiers():
 
 
 @api_bp.route('/owners')
-@api_auth_required
+@api_read_allowed
 def owners():
     rows = query(
         'SELECT ow.id, ow.name, ow.email, COUNT(n.id) AS node_count '
@@ -535,7 +535,7 @@ def owners():
 
 
 @api_bp.route('/tags')
-@api_auth_required
+@api_read_allowed
 def tags():
     rows = query(
         'SELECT t.id, t.name, t.category, COUNT(nt.node_id) AS node_count '
@@ -546,7 +546,7 @@ def tags():
 
 
 @api_bp.route('/groups')
-@api_auth_required
+@api_read_allowed
 def groups():
     p = request.args
     conds, vals = ['1=1'], []
@@ -589,7 +589,7 @@ def create_group():
 
 
 @api_bp.route('/groups/by-name/<path:name>')
-@api_auth_required
+@api_read_allowed
 def group_by_name(name):
     row = query('SELECT id, name, description, owner, is_ansible, is_nagios, created_at, updated_at FROM groups_ WHERE name=%s', (name,), one=True)
     if not row:
@@ -624,7 +624,7 @@ def delete_group(gid):
 
 
 @api_bp.route('/groups/<int:gid>/nodes')
-@api_auth_required
+@api_read_allowed
 def group_nodes(gid):
     rows = query(
         f'{_NODE_SELECT} {_NODE_FROM} '
@@ -737,7 +737,7 @@ def node_remove_group(node_id, gid):
 
 
 @api_bp.route('/vcenters')
-@api_auth_required
+@api_read_allowed
 def vcenters():
     rows = query(
         'SELECT vc.id, vc.url, vc.label, COUNT(DISTINCT dc.id) AS datacenter_count '
@@ -748,7 +748,7 @@ def vcenters():
 
 
 @api_bp.route('/scan-runs')
-@api_auth_required
+@api_read_allowed
 def scan_runs():
     rows = query(
         'SELECT id, source, started_at, finished_at, '
@@ -769,7 +769,7 @@ def scan_runs():
 # ---------------------------------------------------------------------------
 
 @api_bp.route('/counts')
-@api_auth_required
+@api_read_allowed
 def counts():
     return jsonify(
         nodes      = query('SELECT COUNT(*) AS c FROM nodes WHERE active=1',  one=True)['c'],
