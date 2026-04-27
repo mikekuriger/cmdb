@@ -140,6 +140,33 @@ def os_detail(oid):
     )
 
 
+
+@web_bp.route('/datacenters')
+@login_required
+def datacenters():
+    return _obj_list('datacenters', 'Datacenters', '/api/v1/datacenters', [
+        {'title': 'Site',       'data': 'label'},
+        {'title': 'DC Name',    'data': 'name'},
+        {'title': 'vCenter',    'data': 'vcenter'},
+        {'title': 'Node Count', 'data': 'node_count'},
+    ], '/datacenters')
+
+
+@web_bp.route('/datacenters/<int:oid>')
+@login_required
+def datacenter_detail(oid):
+    obj = query('SELECT id, label, name, path FROM datacenters WHERE id=%s', (oid,), one=True)
+    if not obj:
+        flash('Not found.', 'warning'); return redirect(url_for('web.datacenters'))
+    return render_template('object_detail.html', section='datacenters',
+        obj=obj, obj_type='datacenters',
+        back_url=url_for('web.datacenters'), back_label='Datacenters',
+        page_title=f"{obj['label']} — {obj['name']}",
+        edit_fields=[{'field': 'label', 'label': 'Site Label', 'type': 'text'}],
+        node_filter='datacenter_id', node_filter_val=oid,
+    )
+
+
 @web_bp.route('/environments')
 @login_required
 def environments():

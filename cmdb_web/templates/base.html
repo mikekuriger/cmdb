@@ -105,14 +105,16 @@
     <i class="bi bi-window-stack"></i> Operating Systems <span class="sb-count" id="cnt-os">…</span></a>
 
   <div class="sb-section">Metadata</div>
+  <a href="{{ url_for('web.datacenters') }}" class="sb-item {% if section=='datacenters' %}active{% endif %}">
+    <i class="bi bi-building"></i> Datacenters <span class="sb-count" id="cnt-datacenters">…</span></a>
   <a href="{{ url_for('web.environments') }}" class="sb-item {% if section=='environments' %}active{% endif %}">
     <i class="bi bi-grid-3x3-gap"></i> Environments <span class="sb-count" id="cnt-envs">…</span></a>
   <a href="{{ url_for('web.tiers') }}"        class="sb-item {% if section=='tiers' %}active{% endif %}">
     <i class="bi bi-layers"></i> Tiers <span class="sb-count" id="cnt-tiers">…</span></a>
   <a href="{{ url_for('web.owners') }}"       class="sb-item {% if section=='owners' %}active{% endif %}">
     <i class="bi bi-people"></i> Owners <span class="sb-count" id="cnt-owners">…</span></a>
-  <a href="{{ url_for('web.tags') }}"         class="sb-item {% if section=='tags' %}active{% endif %}">
-    <i class="bi bi-tags"></i> Tags <span class="sb-count" id="cnt-tags">…</span></a>
+
+  <div class="sb-section">Classification</div>
   <a href="{{ url_for('web.groups') }}"       class="sb-item {% if section=='groups' %}active{% endif %}">
     <i class="bi bi-collection"></i> Groups <span class="sb-count" id="cnt-groups">…</span></a>
   <a href="{{ url_for('web.statuses') }}"     class="sb-item {% if section=='statuses' %}active{% endif %}">

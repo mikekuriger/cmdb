@@ -33,7 +33,7 @@
 
 {% block content %}
 <!-- Search + filter card -->
-<div class="card border-0 shadow-sm mb-3">
+<div class="card border-0 shadow-sm mb-3" style="position:sticky;top:0;z-index:100;">
   <div class="card-body py-3 px-3">
     <div class="d-flex gap-2 align-items-center flex-wrap">
       <div id="search-bar" class="flex-grow-1">
@@ -95,6 +95,10 @@
         <div class="col-6 col-md-2">
           <label class="form-label small mb-1">vCenter</label>
           <select id="f-vcenter" class="form-select form-select-sm"><option value="">Any</option></select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Datacenter</label>
+          <select id="f-datacenter" class="form-select form-select-sm"><option value="">Any</option></select>
         </div>
         <div class="col-6 col-md-3">
           <label class="form-label small mb-1">OS</label>
@@ -307,6 +311,8 @@ $('#btn-apply').on('click', function() {
     const v = (document.getElementById('f-' + k)?.value || '').trim();
     if (v) activeFilters[k] = v;
   });
+  const dcId = document.getElementById('f-datacenter')?.value;
+  if (dcId) activeFilters['datacenter_id'] = dcId;
   const osId = document.getElementById('f-os')?.value;
   if (osId) activeFilters['os_id'] = osId;
   const statusId = document.getElementById('f-status')?.value;
@@ -319,7 +325,7 @@ $('#btn-apply').on('click', function() {
 
 $('#btn-clear').on('click', function() {
   activeFilters = {};
-  ['power','env','tier','owner','vcenter','os','status'].forEach(k => {
+  ['power','env','tier','owner','vcenter','datacenter','os','status'].forEach(k => {
     const el = document.getElementById('f-' + k);
     if (el) el.value = '';
   });
@@ -359,6 +365,12 @@ $.getJSON('/api/v1/statuses', d => {
   const sel = document.getElementById('f-status');
   (d.data || []).forEach(r => {
     sel.appendChild(new Option(r.name + (r.node_count ? ` (${r.node_count})` : ''), r.id));
+  });
+});
+$.getJSON('/api/v1/datacenters', d => {
+  const sel = document.getElementById('f-datacenter');
+  (d.data || []).forEach(r => {
+    sel.appendChild(new Option(r.label + ' (' + r.node_count + ')', r.id));
   });
 });
 $.getJSON('/api/v1/vcenters', d => {

@@ -19,6 +19,18 @@
 
 {% block head %}
 <style>
+  .pwr  { display:inline-block; padding:.15em .5em; border-radius:3px; font-size:.72rem; font-weight:600; }
+  .pwr-on  { background:#d1e7dd; color:#0a3622; }
+  .pwr-off { background:#f8d7da; color:#842029; }
+  .pwr-sus { background:#fff3cd; color:#664d03; }
+  .pwr-unk { background:#e9ecef; color:#495057; }
+  .os-badge { display:inline-block; padding:.1em .35em; border-radius:3px; font-size:.68rem; font-weight:700; margin-right:.25rem; }
+  .os-linux   { background:#e0f0ff; color:#084298; }
+  .os-windows { background:#e8f5e9; color:#1b5e20; }
+  .os-other   { background:#f3e5f5; color:#4a148c; }
+  #od-search { padding-left:2.2rem; }
+  #od-search-wrap { position:relative; }
+  #od-search-wrap i { position:absolute; left:.75rem; top:.62rem; color:#adb5bd; pointer-events:none; }
   .detail-label { font-size:.72rem; font-weight:600; text-transform:uppercase;
                   letter-spacing:.6px; color:#6c757d; margin-bottom:.2rem; }
   .detail-value { font-size:.9rem; color:#1a202c; }
@@ -72,6 +84,25 @@
   </div>
 </div>
 
+<!-- Node search bar -->
+<div class="card border-0 shadow-sm mb-2">
+  <div class="card-body py-2 px-3">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <div id="od-search-wrap" class="flex-grow-1">
+        <i class="bi bi-search"></i>
+        <input id="od-search" type="text" class="form-control form-control-sm"
+               placeholder="Search by name, hostname, IP, OS…">
+      </div>
+      <div class="btn-group btn-group-sm" id="od-os-filter" role="group">
+        <button type="button" class="btn btn-outline-secondary active" data-os="">All OS</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="linux">Linux</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="windows">Windows</button>
+        <button type="button" class="btn btn-outline-secondary" data-os="other">Other</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Associated nodes table -->
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-white border-bottom d-flex align-items-center gap-2">
@@ -118,7 +149,15 @@ const table = $('#nodesTable').DataTable({
   serverSide: true,
   ajax: {
     url: '/api/v1/nodes',
-    data: d => { d[nodeFilter] = filterVal; d.active = 'all'; return d; },
+    data: d => {
+      d[nodeFilter] = filterVal;
+      d.active = '1';
+      const q = $('#od-search').val().trim();
+      if (q) d.q = q;
+      const os = $('#od-os-filter .active').data('os') || '';
+      if (os) d.os_category = os;
+      return d;
+    },
   },
   columns: [
     { data: 'name',        render: (v,_,r) => `<a href="/nodes/${r.id}" class="fw-semibold text-decoration-none">${v}</a>` },
@@ -147,6 +186,17 @@ const table = $('#nodesTable').DataTable({
   },
 });
 
+// Search + filter controls
+let odSearchTimer;
+$('#od-search').on('input', function() {
+  clearTimeout(odSearchTimer);
+  odSearchTimer = setTimeout(() => table.ajax.reload(), 350);
+});
+$('#od-os-filter button').on('click', function() {
+  $(this).closest('.btn-group').find('button').removeClass('active');
+  $(this).addClass('active');
+  table.ajax.reload();
+});
 // Row click → node detail
 $('#nodesTable tbody').on('click', 'tr', function(e) {
   if ($(e.target).is('a')) return;

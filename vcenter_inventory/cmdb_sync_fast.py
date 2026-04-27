@@ -17,13 +17,67 @@ Usage:
       [--db cmdb] [--workers 20] [--dry-run]
 """
 
-import subprocess, json, re, argparse, os, sys
+import subprocess, json, re, argparse, os, sys, time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pymysql
 import pymysql.cursors
 
 BATCH_SIZE = 50   # VM paths per govc vm.info -json call
+
+LOCK_FILE = "/tmp/cmdb_sync.lock"
+LOCK_MAX_AGE = 3600  # seconds — lock older than this triggers stale check
+
+
+def acquire_lock():
+    """Write PID to lock file. If lock exists, check age and liveness."""
+    if os.path.exists(LOCK_FILE):
+        age = time.time() - os.path.getmtime(LOCK_FILE)
+        if age < LOCK_MAX_AGE:
+            # Recent lock — another instance is probably running
+            try:
+                pid = int(open(LOCK_FILE).read().strip())
+            except (ValueError, OSError):
+                pid = None
+            print(f"[!] Lock file exists (age {int(age)}s < {LOCK_MAX_AGE}s). "
+                  f"PID={pid}. Exiting.", flush=True)
+            sys.exit(1)
+
+        # Lock is old — check if the recorded PID is still alive
+        try:
+            pid = int(open(LOCK_FILE).read().strip())
+        except (ValueError, OSError):
+            pid = None
+
+        if pid and _pid_running(pid):
+            print(f"[!] Stale lock (age {int(age)}s) but PID {pid} is still "
+                  f"running. Exiting.", flush=True)
+            sys.exit(1)
+
+        print(f"[!] Stale lock (age {int(age)}s, PID {pid} not running). "
+              f"Removing and continuing.", flush=True)
+        os.remove(LOCK_FILE)
+
+    with open(LOCK_FILE, 'w') as f:
+        f.write(str(os.getpid()))
+
+
+def release_lock():
+    try:
+        os.remove(LOCK_FILE)
+    except OSError:
+        pass
+
+
+def _pid_running(pid):
+    """Return True if a process with this PID exists."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
 
 
 def load_env_file(path):
@@ -237,6 +291,11 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
         cur.execute(_sel + "WHERE moref=%s AND vcenter_id=%s", (moref, vc_id))
         existing = cur.fetchone()
 
+    # Fallback for records created by CSV import (vcenter_id not set, but datacenter_id is)
+    if not existing and moref and dc_id:
+        cur.execute(_sel + "WHERE moref=%s AND datacenter_id=%s", (moref, dc_id))
+        existing = cur.fetchone()
+
     if not existing and dc_id:
         cur.execute(_sel + "WHERE name=%s AND datacenter_id=%s AND (moref IS NULL OR moref='')",
                     (name, dc_id))
@@ -288,7 +347,7 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
                         list(fields.values()))
             node_id = cur.lastrowid
         except Exception as _ie:
-            # UNIQUE constraint on vm_uuid or moref — find and update instead
+            # UNIQUE constraint on vm_uuid or moref+datacenter — find and update instead
             row = None
             if vm_uuid:
                 cur.execute("SELECT id FROM nodes WHERE vm_uuid=%s", (vm_uuid,))
@@ -296,6 +355,10 @@ def upsert_vm(cur, v, vm_path, field_map, vcenter_url, datacenter, scan_id):
             if not row and moref and vc_id:
                 cur.execute("SELECT id FROM nodes WHERE moref=%s AND vcenter_id=%s",
                             (moref, vc_id))
+                row = cur.fetchone()
+            if not row and moref and dc_id:
+                cur.execute("SELECT id FROM nodes WHERE moref=%s AND datacenter_id=%s",
+                            (moref, dc_id))
                 row = cur.fetchone()
             if row:
                 node_id = row['id']
@@ -444,32 +507,40 @@ def main():
                         help="Print what would change without writing to DB")
     args = parser.parse_args()
 
-    conn = pymysql.connect(
-        host=args.host, port=args.port,
-        user=args.user, password=args.password,
-        db=args.db, charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False
-    )
-    cur = conn.cursor()
-    cur.execute("INSERT INTO scan_runs (source) VALUES (%s)", ("cmdb_sync_fast.py",))
-    scan_id = cur.lastrowid
-    conn.commit()
+    acquire_lock()
+    try:
+        conn = pymysql.connect(
+            host=args.host, port=args.port,
+            user=args.user, password=args.password,
+            db=args.db, charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False
+        )
+        cur = conn.cursor()
+        cur.execute("INSERT INTO scan_runs (source) VALUES (%s)", ("cmdb_sync_fast.py",))
+        scan_id = cur.lastrowid
+        conn.commit()
 
-    for env_file in args.env:
-        try:
-            sync_vcenter(env_file, conn, scan_id,
-                         workers=args.workers, dry_run=args.dry_run)
-        except Exception as e:
-            print(f"[!] Error syncing {env_file}: {e}", file=sys.stderr)
-            import traceback; traceback.print_exc(file=sys.stderr)
+        for env_file in args.env:
+            try:
+                sync_vcenter(env_file, conn, scan_id,
+                             workers=args.workers, dry_run=args.dry_run)
+            except Exception as e:
+                print(f"[!] Error syncing {env_file}: {e}", file=sys.stderr)
+                import traceback; traceback.print_exc(file=sys.stderr)
 
-    cur.execute("UPDATE scan_runs SET finished_at=%s WHERE id=%s",
-                (datetime.now(), scan_id))
-    conn.commit()
-    conn.close()
-    print(f"\n[+] Fast sync complete (scan_id={scan_id})", flush=True)
+        cur.execute("UPDATE scan_runs SET finished_at=%s WHERE id=%s",
+                    (datetime.now(), scan_id))
+        conn.commit()
+        conn.close()
+        print(f"\n[+] Fast sync complete (scan_id={scan_id})", flush=True)
+    finally:
+        release_lock()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        release_lock()
+        raise

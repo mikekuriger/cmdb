@@ -23,6 +23,7 @@ SELECT
     ow.name      AS owner,
     (SELECT ip FROM ip_addresses WHERE node_id=n.id AND is_primary=1 LIMIT 1) AS primary_ip,
     dc.path      AS datacenter,
+    dc.label     AS datacenter_label,
     vc.url       AS vcenter_url,
     vc.label     AS vcenter_label,
     GROUP_CONCAT(DISTINCT tg.name ORDER BY tg.name SEPARATOR '|') AS tags,
@@ -137,7 +138,8 @@ def _build_where(params):
         ('os_id',    'n.os_id'),
         ('env_id',   'n.environment_id'),
         ('tier_id',  'n.tier_id'),
-        ('owner_id', 'n.owner_id'),
+        ('owner_id',       'n.owner_id'),
+        ('datacenter_id',  'n.datacenter_id'),
         ('tag_id',   None),
     ]:
         v = params.get(param)
@@ -153,8 +155,8 @@ def _build_where(params):
     is_template = params.get('is_template')
     if is_template == '1':
         conds.append('n.is_template = 1')
-    elif is_template == '0':
-        conds.append('n.is_template = 0')
+    else:
+        conds.append('n.is_template = 0')  # exclude templates by default
 
     tag = params.get('tag')
     if tag:
@@ -228,7 +230,8 @@ def nodes():
     draw = p.get('draw', type=int)
     if draw is not None:
         # DataTables server-side protocol
-        total_all = query('SELECT COUNT(*) AS cnt FROM nodes WHERE active=1', one=True)['cnt']
+        tmpl_cond = 'AND n.is_template = 1' if p.get('is_template') == '1' else 'AND n.is_template = 0'
+        total_all = query(f'SELECT COUNT(*) AS cnt FROM nodes n WHERE n.active=1 {tmpl_cond}', one=True)['cnt']
         return jsonify(draw=draw, recordsTotal=total_all,
                        recordsFiltered=total_filtered, data=data)
 
@@ -393,7 +396,7 @@ def _object_update(table, id_col, allowed_fields, oid):
 def statuses():
     rows = query(
         'SELECT s.id, s.name, COUNT(n.id) AS node_count '
-        'FROM statuses s LEFT JOIN nodes n ON n.status_id=s.id AND n.active=1 '
+        'FROM statuses s LEFT JOIN nodes n ON n.status_id=s.id AND n.active=1 AND n.is_template=0 '
         'GROUP BY s.id ORDER BY s.name'
     )
     return jsonify(data=list(rows))
@@ -495,7 +498,7 @@ def tag_update(oid):
 def operating_systems():
     rows = query(
         'SELECT o.id, o.full_name, o.category, o.family, COUNT(n.id) AS node_count '
-        'FROM operating_systems o LEFT JOIN nodes n ON n.os_id=o.id AND n.active=1 '
+        'FROM operating_systems o LEFT JOIN nodes n ON n.os_id=o.id AND n.active=1 AND n.is_template=0 '
         'GROUP BY o.id ORDER BY o.category, o.full_name'
     )
     return jsonify(data=list(rows))
@@ -506,7 +509,7 @@ def operating_systems():
 def environments():
     rows = query(
         'SELECT e.id, e.name, COUNT(n.id) AS node_count '
-        'FROM environments e LEFT JOIN nodes n ON n.environment_id=e.id AND n.active=1 '
+        'FROM environments e LEFT JOIN nodes n ON n.environment_id=e.id AND n.active=1 AND n.is_template=0 '
         'GROUP BY e.id ORDER BY e.name'
     )
     return jsonify(data=list(rows))
@@ -517,7 +520,7 @@ def environments():
 def tiers():
     rows = query(
         'SELECT t.id, t.name, COUNT(n.id) AS node_count '
-        'FROM tiers t LEFT JOIN nodes n ON n.tier_id=t.id AND n.active=1 '
+        'FROM tiers t LEFT JOIN nodes n ON n.tier_id=t.id AND n.active=1 AND n.is_template=0 '
         'GROUP BY t.id ORDER BY t.name'
     )
     return jsonify(data=list(rows))
@@ -528,7 +531,7 @@ def tiers():
 def owners():
     rows = query(
         'SELECT ow.id, ow.name, ow.email, COUNT(n.id) AS node_count '
-        'FROM owners ow LEFT JOIN nodes n ON n.owner_id=ow.id AND n.active=1 '
+        'FROM owners ow LEFT JOIN nodes n ON n.owner_id=ow.id AND n.active=1 AND n.is_template=0 '
         'GROUP BY ow.id ORDER BY ow.name'
     )
     return jsonify(data=list(rows))
@@ -734,6 +737,21 @@ def node_add_group(node_id):
 def node_remove_group(node_id, gid):
     execute('DELETE FROM group_members WHERE node_id=%s AND group_id=%s', (node_id, gid))
     return jsonify(ok=True)
+
+
+
+@api_bp.route('/datacenters')
+@api_read_allowed
+def datacenters():
+    rows = query(
+        'SELECT d.id, d.label, d.name, d.path, vc.label AS vcenter, '
+        'COUNT(CASE WHEN n.active=1 AND n.is_template=0 THEN 1 END) AS node_count '
+        'FROM datacenters d '
+        'LEFT JOIN vcenters vc ON vc.id = d.vcenter_id '
+        'LEFT JOIN nodes n ON n.datacenter_id = d.id '
+        'GROUP BY d.id ORDER BY d.label'
+    )
+    return jsonify(data=[dict(r) for r in rows])
 
 
 @api_bp.route('/vcenters')
