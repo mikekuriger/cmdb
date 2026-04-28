@@ -34,7 +34,7 @@ Examples:
 
 import argparse, json, os, sys, urllib.request, urllib.parse, urllib.error, ssl
 
-VERSION = '1.5'
+VERSION = '1.6'
 from datetime import datetime
 
 BASE_URL = os.environ.get('CMDB_URL', 'http://localhost:5000')
@@ -60,6 +60,7 @@ _GET_FIELD_API = {
     'datacenter':  'datacenter',
     'vcenter':     'vcenter',
     'status':      'status',
+    'fqdn':        'fqdn',
     'deployment':  'deployment',
 }
 
@@ -71,6 +72,7 @@ _SET_FIELD_API = {
     'landscape':   'landscape',
     'app_name':    'app_name',
     'description': 'description',
+    'fqdn':        'fqdn',
     'deployment':  'deployment',
     'cmdb_uuid':   'cmdb_uuid',
     'owner':       '__owner',
@@ -100,6 +102,7 @@ _FIELD_DISPLAY = {
     'purpose':      'purpose',
     'app_name':     'app_name',
     'description':  'description',
+    'fqdn':         'fqdn',
     'deployment':   'deployment',
     'cmdb_uuid':    'cmdb_uuid',
     'first_seen':   'first_seen',
@@ -697,6 +700,8 @@ EXAMPLES
                    help='Exact match filter. Repeatable.')
     p.add_argument('--name',     action='append', metavar='VALUE',
                    help='Shortcut for --get name=VALUE. Repeatable.')
+    p.add_argument('--fqdn',     metavar='VALUE', nargs='?', const='__show__',
+                   help='Filter by fqdn (partial match), or use alone to show fqdn field.')
     p.add_argument('--all',      action='store_true',
                    help='Include inactive nodes')
 
@@ -788,6 +793,9 @@ def main():
     if args.name:
         get_pairs += [('name', n) for n in args.name]
 
+    if args.fqdn and args.fqdn != '__show__':
+        get_pairs += [('fqdn', args.fqdn)]
+
     # ── Resolve display fields ────────────────────────────────────────────
     display_labels = None  # when set, triggers nv record format
     if args.allfields:
@@ -797,6 +805,9 @@ def main():
         raw = [_strip_bracket(f.strip()) for f in args.fields.split(',')]
         display_keys  = [_FIELD_DISPLAY.get(f, f) for f in raw]
         display_labels = raw  # preserve original names as block labels
+    elif args.fqdn == '__show__':
+        display_keys   = ['fqdn']
+        display_labels = ['fqdn']
     else:
         display_keys = None  # name-only
 
